@@ -88,13 +88,13 @@ The mixer uses FFmpeg's complex filter graph to:
 
 2. **Audio Volume Control**: `volume` filter applied independently to each source (0-200%)
 
-3. **Audio Delay Control**: `adelay` filter applied independently to each source (0-5000ms)
+3. **Audio Delay Control**: `adelay` filter applied independently to each source (0-15000ms)
    - RTMP delay: Affects both video and audio together (keeps in sync)
    - Browser delay: Audio only
 
 4. **Audio Mixing**: `amix` filter combines both audio streams
 
-5. **Output Encoding**: AAC audio codec at 128kbps for RTMP compatibility
+5. **Output Encoding**: AAC audio codec at 192kbps, 48kHz stereo for high quality RTMP
 
 **Filter Chain Example (with delays):**
 ```
@@ -232,8 +232,8 @@ Dashboard receives real-time updates every 2 seconds:
 | AUDIO_URL | Direct audio stream URL | - |
 | RTMP_AUDIO_VOLUME | RTMP audio level (0-200) | 100 |
 | BROWSER_AUDIO_VOLUME | Browser audio level (0-200) | 100 |
-| RTMP_AUDIO_DELAY | RTMP delay in ms (0-5000) | 0 |
-| BROWSER_AUDIO_DELAY | Browser delay in ms (0-5000) | 0 |
+| RTMP_AUDIO_DELAY | RTMP delay in ms (0-15000) | 0 |
+| BROWSER_AUDIO_DELAY | Browser delay in ms (0-15000) | 0 |
 | VIDEO_BITRATE | Video bitrate when re-encoding | 6000k |
 | BROWSER_ACTIONS | JSON array of actions | [] |
 | BROWSER_CUSTOM_JS | JavaScript to inject | "" |
