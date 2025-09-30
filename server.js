@@ -72,25 +72,38 @@ app.post('/api/start', async (req, res) => {
   try {
     console.log('Starting streaming pipeline...');
 
-    // Start browser audio capture
-    await browserAudio.init({
-      url: appConfig.browserUrl,
-      width: appConfig.browserWidth,
-      height: appConfig.browserHeight,
-      actions: appConfig.browserActions,
-      customJs: appConfig.browserCustomJs
-    });
+    let browserAudioPath = null;
 
-    // Wait a bit for browser to stabilize
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Try to start browser audio capture (optional)
+    if (appConfig.browserUrl) {
+      try {
+        console.log('Attempting to start browser audio capture...');
+        await browserAudio.init({
+          url: appConfig.browserUrl,
+          width: appConfig.browserWidth,
+          height: appConfig.browserHeight,
+          actions: appConfig.browserActions,
+          customJs: appConfig.browserCustomJs
+        });
 
-    // Get browser audio stream path
-    const browserAudioPath = await browserAudio.getAudioStream();
+        // Wait a bit for browser to stabilize
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Get browser audio stream path
+        browserAudioPath = await browserAudio.getAudioStream();
+        console.log('Browser audio capture started successfully');
+      } catch (browserError) {
+        console.warn('Browser audio capture failed, continuing without it:', browserError.message);
+        browserAudioPath = null;
+      }
+    } else {
+      console.log('No browser URL configured, skipping browser audio capture');
+    }
 
     // Construct output RTMP URL
     const outputRtmpUrl = `${appConfig.rtmpOutputUrl}/${appConfig.rtmpOutputKey}`;
 
-    // Start mixer
+    // Start mixer (with or without browser audio)
     await mixer.start({
       inputRtmpUrl: appConfig.rtmpInput,
       outputRtmpUrl: outputRtmpUrl,
@@ -99,7 +112,11 @@ app.post('/api/start', async (req, res) => {
       browserVolume: appConfig.browserVolume
     });
 
-    res.json({ success: true, message: 'Streaming started' });
+    const message = browserAudioPath
+      ? 'Streaming started with browser audio'
+      : 'Streaming started (browser audio unavailable)';
+
+    res.json({ success: true, message: message, hasBrowserAudio: !!browserAudioPath });
   } catch (error) {
     console.error('Failed to start streaming:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -110,8 +127,21 @@ app.post('/api/start', async (req, res) => {
 app.post('/api/stop', async (req, res) => {
   try {
     console.log('Stopping streaming pipeline...');
-    await mixer.stop();
-    await browserAudio.cleanup();
+
+    // Stop mixer
+    try {
+      await mixer.stop();
+    } catch (mixerError) {
+      console.warn('Error stopping mixer:', mixerError.message);
+    }
+
+    // Cleanup browser (even if it wasn't started)
+    try {
+      await browserAudio.cleanup();
+    } catch (browserError) {
+      console.warn('Error cleaning up browser:', browserError.message);
+    }
+
     res.json({ success: true, message: 'Streaming stopped' });
   } catch (error) {
     console.error('Failed to stop streaming:', error);

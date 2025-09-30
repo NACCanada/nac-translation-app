@@ -26,6 +26,7 @@ class RTMPMixer {
       console.log('Starting RTMP mixer...');
       console.log('Input RTMP:', this.config.inputRtmpUrl);
       console.log('Output RTMP:', this.config.outputRtmpUrl);
+      console.log('Browser Audio:', this.config.browserAudioPath ? 'Enabled' : 'Disabled');
       console.log('RTMP Volume:', this.config.rtmpVolume);
       console.log('Browser Volume:', this.config.browserVolume);
 
