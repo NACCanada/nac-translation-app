@@ -101,6 +101,17 @@ Open http://your-droplet-ip:3000
 
 **Dimensions:** Browser viewport size (1920x1080 recommended)
 
+**⚠️ IMPORTANT - Audio Capture Limitations:**
+
+Currently, the browser opens and automates the webpage, but **actual audio capture is not yet implemented**. The app generates a silent audio placeholder to prevent errors.
+
+**To enable real audio capture**, see `BROWSER_AUDIO_SETUP.md` for:
+- Virtual audio device setup (BlackHole/PulseAudio)
+- Direct audio stream URL ingestion
+- Alternative capture methods
+
+For now, the RTMP video/audio will pass through without browser audio mixing.
+
 ### Browser Automation
 
 Configure automated interactions with the translation webpage:
