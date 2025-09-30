@@ -137,9 +137,11 @@ class BrowserAudioCapture {
       throw new Error('Browser audio capture not initialized');
     }
 
-    // Return a dummy audio path for now
-    // In production, you'd use ffmpeg to capture audio from the browser
-    return this.audioOutputPath;
+    // Browser audio capture is not yet implemented
+    // For now, return null so the mixer can proceed without browser audio
+    // TODO: Implement actual browser audio capture using Chrome DevTools Protocol
+    console.warn('Browser audio capture not yet implemented - streaming without browser audio');
+    return null;
   }
 
   async updateConfig(config) {
