@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const WebSocket = require('ws');
+const NodeMediaServer = require('node-media-server');
 require('dotenv').config();
 
 const BrowserAudioCapture = require('./browser-audio');
@@ -8,6 +9,7 @@ const RTMPMixer = require('./mixer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const RTMP_PORT = process.env.RTMP_INPUT_PORT || 1935;
 
 // Middleware
 app.use(express.json());
@@ -151,9 +153,40 @@ app.post('/api/browser/action', async (req, res) => {
   }
 });
 
+// Initialize RTMP server
+const nmsConfig = {
+  rtmp: {
+    port: RTMP_PORT,
+    chunk_size: 60000,
+    gop_cache: true,
+    ping: 30,
+    ping_timeout: 60
+  },
+  http: {
+    port: 8000,
+    allow_origin: '*'
+  },
+  logType: 3
+};
+
+const nms = new NodeMediaServer(nmsConfig);
+
+nms.on('prePublish', (id, StreamPath, args) => {
+  console.log('[NodeMediaServer] Stream published:', StreamPath);
+});
+
+nms.on('donePublish', (id, StreamPath, args) => {
+  console.log('[NodeMediaServer] Stream ended:', StreamPath);
+});
+
+// Start RTMP server
+nms.run();
+console.log(`RTMP Server listening on port ${RTMP_PORT}`);
+console.log(`Send your stream to: rtmp://localhost:${RTMP_PORT}/live/stream`);
+
 // WebSocket for real-time status updates
 const server = app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Web server running on http://localhost:${PORT}`);
   console.log(`Dashboard available at http://localhost:${PORT}`);
 });
 
@@ -186,6 +219,7 @@ process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
   await mixer.stop();
   await browserAudio.cleanup();
+  nms.stop();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
@@ -196,6 +230,7 @@ process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
   await mixer.stop();
   await browserAudio.cleanup();
+  nms.stop();
   server.close(() => {
     console.log('Server closed');
     process.exit(0);
