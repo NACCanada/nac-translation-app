@@ -310,19 +310,57 @@
             </div>
 
             <div class="card">
-                <h2>Browser Audio Source</h2>
+                <h2>Audio Source Configuration</h2>
                 <div class="form-group">
-                    <label>Browser URL</label>
-                    <input type="text" id="browserUrl" placeholder="https://example.com/translation">
+                    <label>Audio Mode</label>
+                    <select id="audioMode" onchange="updateAudioModeFields()">
+                        <option value="disabled">Disabled (RTMP passthrough only)</option>
+                        <option value="browser">Browser Capture (Silent Placeholder)</option>
+                        <option value="device">Virtual Audio Device (BlackHole/PulseAudio)</option>
+                        <option value="url">Direct Audio URL</option>
+                    </select>
+                    <div class="help-text">Choose how to capture translation audio</div>
                 </div>
-                <div class="form-group">
-                    <label>Browser Width</label>
-                    <input type="number" id="browserWidth" value="1920">
+
+                <!-- Browser Mode Fields -->
+                <div id="browserModeFields">
+                    <div class="form-group">
+                        <label>Browser URL</label>
+                        <input type="text" id="browserUrl" placeholder="https://example.com/translation">
+                    </div>
+                    <div class="form-group">
+                        <label>Browser Width</label>
+                        <input type="number" id="browserWidth" value="1920">
+                    </div>
+                    <div class="form-group">
+                        <label>Browser Height</label>
+                        <input type="number" id="browserHeight" value="1080">
+                    </div>
                 </div>
-                <div class="form-group">
-                    <label>Browser Height</label>
-                    <input type="number" id="browserHeight" value="1080">
+
+                <!-- Device Mode Fields -->
+                <div id="deviceModeFields" style="display: none;">
+                    <div class="form-group">
+                        <label>Audio Device Name</label>
+                        <input type="text" id="audioDeviceName" placeholder="BlackHole 2ch">
+                        <div class="help-text">macOS: "BlackHole 2ch" | Linux: "virtual_speaker.monitor"</div>
+                    </div>
+                    <div class="form-group">
+                        <label>Browser URL (optional)</label>
+                        <input type="text" id="browserUrlDevice" placeholder="https://example.com/translation">
+                        <div class="help-text">Opens browser to trigger audio</div>
+                    </div>
                 </div>
+
+                <!-- URL Mode Fields -->
+                <div id="urlModeFields" style="display: none;">
+                    <div class="form-group">
+                        <label>Direct Audio Stream URL</label>
+                        <input type="text" id="audioUrl" placeholder="https://example.com/audio-stream.mp3">
+                        <div class="help-text">HTTP/HTTPS audio stream URL</div>
+                    </div>
+                </div>
+
                 <button class="btn-secondary" onclick="saveConfig()">Save Configuration</button>
             </div>
         </div>
@@ -397,6 +435,28 @@
             setTimeout(() => div.remove(), 5000);
         }
 
+        function updateAudioModeFields() {
+            const audioMode = document.getElementById('audioMode').value;
+
+            // Hide all mode-specific fields
+            document.getElementById('browserModeFields').style.display = 'none';
+            document.getElementById('deviceModeFields').style.display = 'none';
+            document.getElementById('urlModeFields').style.display = 'none';
+
+            // Show relevant fields based on mode
+            switch (audioMode) {
+                case 'browser':
+                    document.getElementById('browserModeFields').style.display = 'block';
+                    break;
+                case 'device':
+                    document.getElementById('deviceModeFields').style.display = 'block';
+                    break;
+                case 'url':
+                    document.getElementById('urlModeFields').style.display = 'block';
+                    break;
+            }
+        }
+
         async function loadConfig() {
             try {
                 const response = await fetch('/api/config');
@@ -405,9 +465,13 @@
                 document.getElementById('rtmpInput').value = config.rtmpInput || '';
                 document.getElementById('rtmpOutputUrl').value = config.rtmpOutputUrl || '';
                 document.getElementById('rtmpOutputKey').value = config.rtmpOutputKey || '';
+                document.getElementById('audioMode').value = config.audioMode || 'browser';
                 document.getElementById('browserUrl').value = config.browserUrl || '';
                 document.getElementById('browserWidth').value = config.browserWidth || 1920;
                 document.getElementById('browserHeight').value = config.browserHeight || 1080;
+                document.getElementById('audioDeviceName').value = config.audioDeviceName || '';
+                document.getElementById('browserUrlDevice').value = config.browserUrl || '';
+                document.getElementById('audioUrl').value = config.audioUrl || '';
                 document.getElementById('rtmpVolume').value = config.rtmpVolume || 100;
                 document.getElementById('browserVolume').value = config.browserVolume || 100;
                 document.getElementById('browserActions').value = JSON.stringify(config.browserActions || [], null, 2);
@@ -415,6 +479,7 @@
 
                 updateVolumeDisplay('rtmp');
                 updateVolumeDisplay('browser');
+                updateAudioModeFields();
 
                 showMessage('Configuration loaded');
             } catch (error) {
@@ -424,18 +489,27 @@
 
         async function saveConfig() {
             try {
+                const audioMode = document.getElementById('audioMode').value;
                 const config = {
                     rtmpInput: document.getElementById('rtmpInput').value,
                     rtmpOutputUrl: document.getElementById('rtmpOutputUrl').value,
                     rtmpOutputKey: document.getElementById('rtmpOutputKey').value,
+                    audioMode: audioMode,
                     browserUrl: document.getElementById('browserUrl').value,
                     browserWidth: parseInt(document.getElementById('browserWidth').value),
                     browserHeight: parseInt(document.getElementById('browserHeight').value),
+                    audioDeviceName: document.getElementById('audioDeviceName').value,
+                    audioUrl: document.getElementById('audioUrl').value,
                     rtmpVolume: parseInt(document.getElementById('rtmpVolume').value),
                     browserVolume: parseInt(document.getElementById('browserVolume').value),
                     browserActions: JSON.parse(document.getElementById('browserActions').value || '[]'),
                     browserCustomJs: document.getElementById('browserCustomJs').value
                 };
+
+                // Use device browser URL if in device mode
+                if (audioMode === 'device') {
+                    config.browserUrl = document.getElementById('browserUrlDevice').value;
+                }
 
                 const response = await fetch('/api/config', {
                     method: 'POST',

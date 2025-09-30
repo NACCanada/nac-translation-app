@@ -95,22 +95,48 @@ Open http://your-droplet-ip:3000
 - Get from YouTube/Vimeo dashboard
 - Keep this secret!
 
-### Browser Audio Source
+### Audio Source Modes
 
-**URL:** The webpage with translated audio (e.g., translation service)
+The dashboard allows you to choose between different audio capture methods:
 
-**Dimensions:** Browser viewport size (1920x1080 recommended)
+#### 1. **Disabled Mode** (Default/Testing)
+- RTMP video/audio passes through unchanged
+- No translation audio mixing
+- Use for testing video passthrough
 
-**⚠️ IMPORTANT - Audio Capture Limitations:**
+#### 2. **Browser Mode** (Silent Placeholder)
+- Opens translation webpage with automation
+- Currently generates silent audio placeholder
+- Future: Will capture browser tab audio via CDP
+- Good for testing automation scripts
 
-Currently, the browser opens and automates the webpage, but **actual audio capture is not yet implemented**. The app generates a silent audio placeholder to prevent errors.
+#### 3. **Device Mode** (Recommended for Production)
+- Captures from virtual audio device
+- **Requires setup**: Install BlackHole (Mac) or PulseAudio (Linux)
+- Opens browser and routes audio through virtual device
+- FFmpeg captures real audio from device
+- **This mode works for actual audio mixing!**
 
-**To enable real audio capture**, see `BROWSER_AUDIO_SETUP.md` for:
-- Virtual audio device setup (BlackHole/PulseAudio)
-- Direct audio stream URL ingestion
-- Alternative capture methods
+**macOS Setup:**
+```bash
+brew install blackhole-2ch
+# Configure in Audio MIDI Setup (see BROWSER_AUDIO_SETUP.md)
+# Set device name to: "BlackHole 2ch"
+```
 
-For now, the RTMP video/audio will pass through without browser audio mixing.
+**Linux Setup:**
+```bash
+pactl load-module module-null-sink sink_name=virtual_speaker
+# Set device name to: "virtual_speaker.monitor"
+```
+
+#### 4. **URL Mode** (Simplest)
+- Directly ingests audio from HTTP/HTTPS URL
+- No browser needed
+- Perfect if translation service provides audio stream endpoint
+- Example: `https://langfinity.ai/audio/event-id.mp3`
+
+**To configure**, use the dashboard's "Audio Source Configuration" section or edit `.env` file.
 
 ### Browser Automation
 

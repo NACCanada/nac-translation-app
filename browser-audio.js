@@ -15,10 +15,20 @@ class BrowserAudioCapture {
 
   async init(config) {
     try {
+      // Store config
+      this.config = config;
+
       // Ensure audio-temp directory exists
       const audioTempDir = path.join(__dirname, 'audio-temp');
       if (!fs.existsSync(audioTempDir)) {
         fs.mkdirSync(audioTempDir, { recursive: true });
+      }
+
+      // Skip browser launch if using direct URL mode
+      if (config.mode === 'url') {
+        this.isRunning = true;
+        console.log('Direct URL mode - skipping browser launch');
+        return true;
       }
 
       console.log('Launching browser...');
@@ -136,13 +146,102 @@ class BrowserAudioCapture {
   }
 
   async getAudioStream() {
-    if (!this.page || !this.isRunning) {
+    if (!this.isRunning) {
       throw new Error('Browser audio capture not initialized');
     }
 
-    try {
-      console.log('Starting browser audio capture via CDP...');
+    const mode = this.config?.mode || 'browser';
 
+    try {
+      switch (mode) {
+        case 'device':
+          return await this.captureFromDevice();
+
+        case 'url':
+          // Direct URL - no capture needed
+          return null;
+
+        case 'browser':
+        default:
+          return await this.captureFromBrowser();
+      }
+    } catch (error) {
+      console.error('Failed to get audio stream:', error);
+      return null;
+    }
+  }
+
+  async captureFromDevice() {
+    const deviceName = this.config.deviceName;
+    console.log(`Capturing audio from device: ${deviceName}`);
+
+    // Detect OS and use appropriate audio capture
+    const platform = process.platform;
+    let audioArgs = [];
+
+    if (platform === 'darwin') {
+      // macOS - use avfoundation
+      audioArgs = [
+        '-f', 'avfoundation',
+        '-i', `:${deviceName}`, // Audio-only input
+        '-acodec', 'pcm_s16le',
+        '-ar', '48000',
+        '-ac', '2',
+        '-y',
+        this.audioOutputPath
+      ];
+    } else if (platform === 'linux') {
+      // Linux - use PulseAudio
+      audioArgs = [
+        '-f', 'pulse',
+        '-i', deviceName,
+        '-acodec', 'pcm_s16le',
+        '-ar', '48000',
+        '-ac', '2',
+        '-y',
+        this.audioOutputPath
+      ];
+    } else {
+      throw new Error(`Unsupported platform for device capture: ${platform}`);
+    }
+
+    return new Promise((resolve, reject) => {
+      this.ffmpegProcess = spawn('ffmpeg', audioArgs);
+
+      this.ffmpegProcess.stderr.on('data', (data) => {
+        // Log FFmpeg output for debugging
+        const msg = data.toString();
+        if (msg.includes('error') || msg.includes('Error')) {
+          console.error('FFmpeg error:', msg);
+        }
+      });
+
+      this.ffmpegProcess.on('error', (err) => {
+        console.error('FFmpeg process error:', err);
+        reject(err);
+      });
+
+      // Wait for file to be created and have some data
+      setTimeout(() => {
+        if (fs.existsSync(this.audioOutputPath)) {
+          console.log('Device audio capture started successfully');
+          resolve(this.audioOutputPath);
+        } else {
+          console.warn('Could not capture from device, returning null');
+          resolve(null);
+        }
+      }, 2000);
+    });
+  }
+
+  async captureFromBrowser() {
+    if (!this.page) {
+      throw new Error('Browser not initialized');
+    }
+
+    console.log('Starting browser audio capture...');
+
+    try {
       // Get CDP session
       const client = await this.page.target().createCDPSession();
 
@@ -161,36 +260,12 @@ class BrowserAudioCapture {
               el.play().catch(e => console.log('Could not autoplay:', e));
             }
           });
-
-          // Create audio context to capture tab audio
-          window.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-
-          // Try to capture stream
-          if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-            navigator.mediaDevices.getDisplayMedia({
-              video: false,
-              audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false
-              }
-            }).then(stream => {
-              console.log('Audio capture started');
-              window.capturedStream = stream;
-              resolve(true);
-            }).catch(err => {
-              console.log('Could not capture audio:', err);
-              resolve(false);
-            });
-          } else {
-            resolve(false);
-          }
+          resolve(true);
         });
       });
 
-      // Start FFmpeg to create a continuous audio file from pulseaudio/system audio
-      // For now, generate a silent placeholder that will loop
-      console.log('Generating silent audio placeholder (browser audio capture requires user interaction)...');
+      // Generate silent placeholder for now
+      console.log('Generating silent audio placeholder...');
 
       return new Promise((resolve, reject) => {
         this.ffmpegProcess = spawn('ffmpeg', [
@@ -206,7 +281,6 @@ class BrowserAudioCapture {
           reject(err);
         });
 
-        // Wait a bit for file to be created
         setTimeout(() => {
           if (fs.existsSync(this.audioOutputPath)) {
             console.log('Browser audio file ready (silent placeholder)');

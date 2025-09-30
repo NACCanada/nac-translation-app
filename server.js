@@ -30,7 +30,10 @@ let appConfig = {
   rtmpVolume: parseInt(process.env.RTMP_AUDIO_VOLUME) || 100,
   browserVolume: parseInt(process.env.BROWSER_AUDIO_VOLUME) || 100,
   browserActions: [],
-  browserCustomJs: process.env.BROWSER_CUSTOM_JS || ''
+  browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
+  audioMode: process.env.AUDIO_MODE || 'browser', // 'browser', 'device', 'url', 'disabled'
+  audioDeviceName: process.env.AUDIO_DEVICE_NAME || '', // e.g., 'BlackHole 2ch' or 'virtual_speaker.monitor'
+  audioUrl: process.env.AUDIO_URL || '' // Direct audio stream URL
 };
 
 // Parse browser actions from env
@@ -71,33 +74,81 @@ app.get('/api/status', (req, res) => {
 app.post('/api/start', async (req, res) => {
   try {
     console.log('Starting streaming pipeline...');
+    console.log('Audio Mode:', appConfig.audioMode);
 
     let browserAudioPath = null;
 
-    // Try to start browser audio capture (optional)
-    if (appConfig.browserUrl) {
-      try {
-        console.log('Attempting to start browser audio capture...');
-        await browserAudio.init({
-          url: appConfig.browserUrl,
-          width: appConfig.browserWidth,
-          height: appConfig.browserHeight,
-          actions: appConfig.browserActions,
-          customJs: appConfig.browserCustomJs
-        });
+    // Handle different audio modes
+    switch (appConfig.audioMode) {
+      case 'browser':
+        // Browser audio capture with automation
+        if (appConfig.browserUrl) {
+          try {
+            console.log('Attempting to start browser audio capture...');
+            await browserAudio.init({
+              url: appConfig.browserUrl,
+              width: appConfig.browserWidth,
+              height: appConfig.browserHeight,
+              actions: appConfig.browserActions,
+              customJs: appConfig.browserCustomJs,
+              mode: 'browser'
+            });
 
-        // Wait a bit for browser to stabilize
-        await new Promise(resolve => setTimeout(resolve, 2000));
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            browserAudioPath = await browserAudio.getAudioStream();
+            console.log('Browser audio capture started successfully');
+          } catch (browserError) {
+            console.warn('Browser audio capture failed, continuing without it:', browserError.message);
+            browserAudioPath = null;
+          }
+        } else {
+          console.log('No browser URL configured, skipping browser audio capture');
+        }
+        break;
 
-        // Get browser audio stream path
-        browserAudioPath = await browserAudio.getAudioStream();
-        console.log('Browser audio capture started successfully');
-      } catch (browserError) {
-        console.warn('Browser audio capture failed, continuing without it:', browserError.message);
-        browserAudioPath = null;
-      }
-    } else {
-      console.log('No browser URL configured, skipping browser audio capture');
+      case 'device':
+        // Virtual audio device capture (BlackHole/PulseAudio)
+        if (appConfig.audioDeviceName) {
+          try {
+            console.log(`Capturing from audio device: ${appConfig.audioDeviceName}`);
+            await browserAudio.init({
+              url: appConfig.browserUrl,
+              width: appConfig.browserWidth,
+              height: appConfig.browserHeight,
+              actions: appConfig.browserActions,
+              customJs: appConfig.browserCustomJs,
+              mode: 'device',
+              deviceName: appConfig.audioDeviceName
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            browserAudioPath = await browserAudio.getAudioStream();
+            console.log('Device audio capture started successfully');
+          } catch (deviceError) {
+            console.warn('Device audio capture failed, continuing without it:', deviceError.message);
+            browserAudioPath = null;
+          }
+        } else {
+          console.warn('No audio device name configured');
+        }
+        break;
+
+      case 'url':
+        // Direct audio URL ingestion
+        if (appConfig.audioUrl) {
+          console.log(`Using direct audio URL: ${appConfig.audioUrl}`);
+          browserAudioPath = appConfig.audioUrl;
+        } else {
+          console.warn('No audio URL configured');
+        }
+        break;
+
+      case 'disabled':
+        console.log('Audio mixing disabled - RTMP passthrough only');
+        break;
+
+      default:
+        console.warn(`Unknown audio mode: ${appConfig.audioMode}`);
     }
 
     // Construct output RTMP URL
