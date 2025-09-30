@@ -29,6 +29,8 @@ let appConfig = {
   browserHeight: parseInt(process.env.BROWSER_HEIGHT) || 1080,
   rtmpVolume: parseInt(process.env.RTMP_AUDIO_VOLUME) || 100,
   browserVolume: parseInt(process.env.BROWSER_AUDIO_VOLUME) || 100,
+  rtmpDelay: parseInt(process.env.RTMP_AUDIO_DELAY) || 0, // Delay in milliseconds
+  browserDelay: parseInt(process.env.BROWSER_AUDIO_DELAY) || 0, // Delay in milliseconds
   browserActions: [],
   browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
   audioMode: process.env.AUDIO_MODE || 'browser', // 'browser', 'device', 'url', 'disabled'
@@ -160,7 +162,9 @@ app.post('/api/start', async (req, res) => {
       outputRtmpUrl: outputRtmpUrl,
       browserAudioPath: browserAudioPath,
       rtmpVolume: appConfig.rtmpVolume,
-      browserVolume: appConfig.browserVolume
+      browserVolume: appConfig.browserVolume,
+      rtmpDelay: appConfig.rtmpDelay,
+      browserDelay: appConfig.browserDelay
     });
 
     const message = browserAudioPath
@@ -200,10 +204,10 @@ app.post('/api/stop', async (req, res) => {
   }
 });
 
-// Update volumes
+// Update volumes and delays
 app.post('/api/volumes', async (req, res) => {
   try {
-    const { rtmpVolume, browserVolume } = req.body;
+    const { rtmpVolume, browserVolume, rtmpDelay, browserDelay } = req.body;
 
     if (rtmpVolume !== undefined) {
       appConfig.rtmpVolume = rtmpVolume;
@@ -211,11 +215,25 @@ app.post('/api/volumes', async (req, res) => {
     if (browserVolume !== undefined) {
       appConfig.browserVolume = browserVolume;
     }
+    if (rtmpDelay !== undefined) {
+      appConfig.rtmpDelay = rtmpDelay;
+    }
+    if (browserDelay !== undefined) {
+      appConfig.browserDelay = browserDelay;
+    }
 
-    // Update mixer with new volumes
-    await mixer.updateVolumes(appConfig.rtmpVolume, appConfig.browserVolume);
+    // Update mixer with new volumes and delays
+    await mixer.updateVolumes(appConfig.rtmpVolume, appConfig.browserVolume, appConfig.rtmpDelay, appConfig.browserDelay);
 
-    res.json({ success: true, volumes: { rtmpVolume: appConfig.rtmpVolume, browserVolume: appConfig.browserVolume } });
+    res.json({
+      success: true,
+      settings: {
+        rtmpVolume: appConfig.rtmpVolume,
+        browserVolume: appConfig.browserVolume,
+        rtmpDelay: appConfig.rtmpDelay,
+        browserDelay: appConfig.browserDelay
+      }
+    });
   } catch (error) {
     console.error('Failed to update volumes:', error);
     res.status(500).json({ success: false, error: error.message });

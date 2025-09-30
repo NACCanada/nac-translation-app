@@ -177,11 +177,19 @@ document.querySelector('audio').play();
 document.querySelector('#mute-button').click();
 ```
 
-### Volume Control
+### Volume & Delay Control
 
+**Volume:**
 - **RTMP Audio Volume:** 0-200% (100 = original volume)
 - **Browser Audio Volume:** 0-200% (100 = original volume)
-- Volumes can be adjusted in real-time while streaming
+- Adjust in real-time while streaming
+
+**Delay (Audio Sync):**
+- **RTMP Audio Delay:** 0-5000ms
+- **Browser Audio Delay:** 0-5000ms
+- Use to synchronize audio feeds if one is ahead/behind
+- Applies FFmpeg `adelay` filter
+- Updates require stream restart (~1-2s interruption)
 
 ## Usage Workflow
 

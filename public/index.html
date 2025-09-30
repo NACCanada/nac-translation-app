@@ -272,7 +272,7 @@
         </div>
 
         <div class="card">
-            <h2>Volume Controls</h2>
+            <h2>Volume & Delay Controls</h2>
             <div class="slider-group">
                 <div class="slider-label">
                     <label>RTMP Stream Volume</label>
@@ -282,12 +282,28 @@
             </div>
             <div class="slider-group">
                 <div class="slider-label">
+                    <label>RTMP Audio Delay</label>
+                    <span class="slider-value" id="rtmpDelayValue">0ms</span>
+                </div>
+                <input type="range" id="rtmpDelay" min="0" max="5000" step="50" value="0" oninput="updateDelayDisplay('rtmp')">
+                <div class="help-text">Delay RTMP audio by 0-5000ms</div>
+            </div>
+            <div class="slider-group">
+                <div class="slider-label">
                     <label>Browser Audio Volume</label>
                     <span class="slider-value" id="browserVolumeValue">100%</span>
                 </div>
                 <input type="range" id="browserVolume" min="0" max="200" value="100" oninput="updateVolumeDisplay('browser')">
             </div>
-            <button class="btn-primary" onclick="updateVolumes()">Apply Volume Changes</button>
+            <div class="slider-group">
+                <div class="slider-label">
+                    <label>Browser Audio Delay</label>
+                    <span class="slider-value" id="browserDelayValue">0ms</span>
+                </div>
+                <input type="range" id="browserDelay" min="0" max="5000" step="50" value="0" oninput="updateDelayDisplay('browser')">
+                <div class="help-text">Delay browser audio by 0-5000ms</div>
+            </div>
+            <button class="btn-primary" onclick="updateVolumes()">Apply Changes</button>
         </div>
 
         <div class="grid">
@@ -474,11 +490,15 @@
                 document.getElementById('audioUrl').value = config.audioUrl || '';
                 document.getElementById('rtmpVolume').value = config.rtmpVolume || 100;
                 document.getElementById('browserVolume').value = config.browserVolume || 100;
+                document.getElementById('rtmpDelay').value = config.rtmpDelay || 0;
+                document.getElementById('browserDelay').value = config.browserDelay || 0;
                 document.getElementById('browserActions').value = JSON.stringify(config.browserActions || [], null, 2);
                 document.getElementById('browserCustomJs').value = config.browserCustomJs || '';
 
                 updateVolumeDisplay('rtmp');
                 updateVolumeDisplay('browser');
+                updateDelayDisplay('rtmp');
+                updateDelayDisplay('browser');
                 updateAudioModeFields();
 
                 showMessage('Configuration loaded');
@@ -502,6 +522,8 @@
                     audioUrl: document.getElementById('audioUrl').value,
                     rtmpVolume: parseInt(document.getElementById('rtmpVolume').value),
                     browserVolume: parseInt(document.getElementById('browserVolume').value),
+                    rtmpDelay: parseInt(document.getElementById('rtmpDelay').value),
+                    browserDelay: parseInt(document.getElementById('browserDelay').value),
                     browserActions: JSON.parse(document.getElementById('browserActions').value || '[]'),
                     browserCustomJs: document.getElementById('browserCustomJs').value
                 };
@@ -563,25 +585,33 @@
             volumeDisplay.textContent = volumeInput.value + '%';
         }
 
+        function updateDelayDisplay(type) {
+            const delayInput = document.getElementById(`${type}Delay`);
+            const delayDisplay = document.getElementById(`${type}DelayValue`);
+            delayDisplay.textContent = delayInput.value + 'ms';
+        }
+
         async function updateVolumes() {
             try {
                 const rtmpVolume = parseInt(document.getElementById('rtmpVolume').value);
                 const browserVolume = parseInt(document.getElementById('browserVolume').value);
+                const rtmpDelay = parseInt(document.getElementById('rtmpDelay').value);
+                const browserDelay = parseInt(document.getElementById('browserDelay').value);
 
                 const response = await fetch('/api/volumes', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ rtmpVolume, browserVolume })
+                    body: JSON.stringify({ rtmpVolume, browserVolume, rtmpDelay, browserDelay })
                 });
 
                 const result = await response.json();
                 if (result.success) {
-                    showMessage('Volumes updated');
+                    showMessage('Volume and delay settings updated');
                 } else {
-                    showMessage('Failed to update volumes: ' + result.error, 'error');
+                    showMessage('Failed to update settings: ' + result.error, 'error');
                 }
             } catch (error) {
-                showMessage('Failed to update volumes: ' + error.message, 'error');
+                showMessage('Failed to update settings: ' + error.message, 'error');
             }
         }
 

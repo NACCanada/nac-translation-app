@@ -10,7 +10,9 @@ class RTMPMixer {
       outputRtmpUrl: '',
       browserAudioPath: '',
       rtmpVolume: 100,
-      browserVolume: 100
+      browserVolume: 100,
+      rtmpDelay: 0,
+      browserDelay: 0
     };
   }
 
@@ -29,11 +31,17 @@ class RTMPMixer {
       console.log('Browser Audio:', this.config.browserAudioPath ? 'Enabled' : 'Disabled');
       console.log('RTMP Volume:', this.config.rtmpVolume);
       console.log('Browser Volume:', this.config.browserVolume);
+      console.log('RTMP Delay:', this.config.rtmpDelay, 'ms');
+      console.log('Browser Delay:', this.config.browserDelay, 'ms');
 
       // Convert volume percentage to FFmpeg filter value
       // 100% = 1.0, 200% = 2.0, 50% = 0.5
       const rtmpVolumeFilter = this.config.rtmpVolume / 100;
       const browserVolumeFilter = this.config.browserVolume / 100;
+
+      // Convert delay from milliseconds to seconds
+      const rtmpDelaySeconds = this.config.rtmpDelay / 1000;
+      const browserDelaySeconds = this.config.browserDelay / 1000;
 
       this.ffmpegProcess = ffmpeg();
 
@@ -53,21 +61,29 @@ class RTMPMixer {
           ]);
       }
 
-      // Complex filter for audio mixing
+      // Complex filter for audio mixing with delays
       let filterComplex;
       if (this.config.browserAudioPath) {
-        // Mix both audio streams with independent volume controls
+        // Mix both audio streams with independent volume controls and delays
         filterComplex = [
-          // Adjust RTMP audio volume
-          `[0:a]volume=${rtmpVolumeFilter}[a0]`,
-          // Adjust browser audio volume
-          `[1:a]volume=${browserVolumeFilter}[a1]`,
+          // Adjust RTMP audio volume and delay
+          rtmpDelaySeconds > 0
+            ? `[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[a0]`
+            : `[0:a]volume=${rtmpVolumeFilter}[a0]`,
+          // Adjust browser audio volume and delay
+          browserDelaySeconds > 0
+            ? `[1:a]volume=${browserVolumeFilter},adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`
+            : `[1:a]volume=${browserVolumeFilter}[a1]`,
           // Mix both audio streams
           `[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]`
         ].join(';');
       } else {
-        // Only RTMP audio with volume adjustment
-        filterComplex = `[0:a]volume=${rtmpVolumeFilter}[aout]`;
+        // Only RTMP audio with volume adjustment and delay
+        if (rtmpDelaySeconds > 0) {
+          filterComplex = `[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`;
+        } else {
+          filterComplex = `[0:a]volume=${rtmpVolumeFilter}[aout]`;
+        }
       }
 
       this.ffmpegProcess
@@ -130,13 +146,15 @@ class RTMPMixer {
     this.isRunning = false;
   }
 
-  async updateVolumes(rtmpVolume, browserVolume) {
-    // To update volumes in real-time, we need to restart the process
-    // with new volume settings
+  async updateVolumes(rtmpVolume, browserVolume, rtmpDelay, browserDelay) {
+    // To update volumes/delays in real-time, we need to restart the process
+    // with new settings
     if (this.isRunning) {
-      console.log('Updating volumes...');
+      console.log('Updating volumes and delays...');
       this.config.rtmpVolume = rtmpVolume !== undefined ? rtmpVolume : this.config.rtmpVolume;
       this.config.browserVolume = browserVolume !== undefined ? browserVolume : this.config.browserVolume;
+      this.config.rtmpDelay = rtmpDelay !== undefined ? rtmpDelay : this.config.rtmpDelay;
+      this.config.browserDelay = browserDelay !== undefined ? browserDelay : this.config.browserDelay;
       await this.start(this.config);
     }
   }
