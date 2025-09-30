@@ -65,16 +65,15 @@ class RTMPMixer {
 
       // Complex filter for audio mixing with delays and video delay
       let filterComplex;
+      let needsVideoFilter = rtmpDelaySeconds > 0;
+
       if (this.config.browserAudioPath) {
         // Mix both audio streams with independent volume controls and delays
-        // Also delay RTMP video to match RTMP audio delay
         const filters = [];
 
-        // Delay RTMP video if RTMP delay is set
+        // Delay RTMP video if RTMP delay is set (only add filter if delay needed)
         if (rtmpDelaySeconds > 0) {
           filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
-        } else {
-          filters.push(`[0:v]copy[v0]`);
         }
 
         // Adjust RTMP audio volume and delay
@@ -104,7 +103,7 @@ class RTMPMixer {
           filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
           filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
         } else {
-          filters.push(`[0:v]copy[v0]`);
+          // No video filter needed, just audio volume
           filters.push(`[0:a]volume=${rtmpVolumeFilter}[aout]`);
         }
 
@@ -112,13 +111,20 @@ class RTMPMixer {
       }
 
       // Build output options based on whether video needs re-encoding
-      const outputOptions = [
-        '-map [v0]',          // Map delayed/copied video
-        '-map [aout]',        // Map mixed audio
-      ];
+      const outputOptions = [];
+
+      // Map video - either from filter or directly
+      if (needsVideoFilter) {
+        outputOptions.push('-map [v0]');  // Map filtered video
+      } else {
+        outputOptions.push('-map 0:v');   // Map video directly from input
+      }
+
+      // Map audio output
+      outputOptions.push('-map [aout]');
 
       // Add video encoding options
-      if (rtmpDelaySeconds > 0) {
+      if (needsVideoFilter) {
         // Re-encode video with specified bitrate when delay is applied
         outputOptions.push(
           '-c:v libx264',                    // Re-encode video (required for setpts)
