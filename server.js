@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const WebSocket = require('ws');
 const NodeMediaServer = require('node-media-server');
 require('dotenv').config();
@@ -11,6 +12,9 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const RTMP_PORT = process.env.RTMP_INPUT_PORT || 1935;
 
+// Configuration file path
+const CONFIG_FILE = path.join(__dirname, 'config.json');
+
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
@@ -19,25 +23,53 @@ app.use(express.static('public'));
 const browserAudio = new BrowserAudioCapture();
 const mixer = new RTMPMixer();
 
+// Load saved configuration or use defaults
+function loadConfig() {
+  const defaultConfig = {
+    rtmpInput: `rtmp://localhost:${process.env.RTMP_INPUT_PORT || 1935}/live/stream`,
+    rtmpOutputUrl: process.env.RTMP_OUTPUT_URL || '',
+    rtmpOutputKey: process.env.RTMP_OUTPUT_KEY || '',
+    browserUrl: process.env.BROWSER_URL || '',
+    browserWidth: parseInt(process.env.BROWSER_WIDTH) || 1920,
+    browserHeight: parseInt(process.env.BROWSER_HEIGHT) || 1080,
+    rtmpVolume: parseInt(process.env.RTMP_AUDIO_VOLUME) || 100,
+    browserVolume: parseInt(process.env.BROWSER_AUDIO_VOLUME) || 100,
+    rtmpDelay: parseInt(process.env.RTMP_AUDIO_DELAY) || 0,
+    browserDelay: parseInt(process.env.BROWSER_AUDIO_DELAY) || 0,
+    videoBitrate: process.env.VIDEO_BITRATE || '6000k',
+    browserActions: [],
+    browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
+    audioMode: process.env.AUDIO_MODE || 'browser',
+    audioDeviceName: process.env.AUDIO_DEVICE_NAME || '',
+    audioUrl: process.env.AUDIO_URL || ''
+  };
+
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      const savedConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+      console.log('Loaded configuration from config.json');
+      return { ...defaultConfig, ...savedConfig };
+    }
+  } catch (error) {
+    console.error('Error loading config.json:', error.message);
+  }
+
+  console.log('Using default configuration');
+  return defaultConfig;
+}
+
+// Save configuration to file
+function saveConfig(config) {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    console.log('Configuration saved to config.json');
+  } catch (error) {
+    console.error('Error saving config.json:', error.message);
+  }
+}
+
 // Store current configuration
-let appConfig = {
-  rtmpInput: `rtmp://localhost:${process.env.RTMP_INPUT_PORT || 1935}/live/stream`,
-  rtmpOutputUrl: process.env.RTMP_OUTPUT_URL || '',
-  rtmpOutputKey: process.env.RTMP_OUTPUT_KEY || '',
-  browserUrl: process.env.BROWSER_URL || '',
-  browserWidth: parseInt(process.env.BROWSER_WIDTH) || 1920,
-  browserHeight: parseInt(process.env.BROWSER_HEIGHT) || 1080,
-  rtmpVolume: parseInt(process.env.RTMP_AUDIO_VOLUME) || 100,
-  browserVolume: parseInt(process.env.BROWSER_AUDIO_VOLUME) || 100,
-  rtmpDelay: parseInt(process.env.RTMP_AUDIO_DELAY) || 0, // Delay in milliseconds
-  browserDelay: parseInt(process.env.BROWSER_AUDIO_DELAY) || 0, // Delay in milliseconds
-  videoBitrate: process.env.VIDEO_BITRATE || '6000k', // Video bitrate when re-encoding
-  browserActions: [],
-  browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
-  audioMode: process.env.AUDIO_MODE || 'browser', // 'browser', 'device', 'url', 'disabled'
-  audioDeviceName: process.env.AUDIO_DEVICE_NAME || '', // e.g., 'BlackHole 2ch' or 'virtual_speaker.monitor'
-  audioUrl: process.env.AUDIO_URL || '' // Direct audio stream URL
-};
+let appConfig = loadConfig();
 
 // Parse browser actions from env
 try {
@@ -59,6 +91,7 @@ app.get('/api/config', (req, res) => {
 app.post('/api/config', async (req, res) => {
   try {
     appConfig = { ...appConfig, ...req.body };
+    saveConfig(appConfig); // Persist to file
     res.json({ success: true, config: appConfig });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -223,6 +256,9 @@ app.post('/api/volumes', async (req, res) => {
     if (browserDelay !== undefined) {
       appConfig.browserDelay = browserDelay;
     }
+
+    // Persist configuration
+    saveConfig(appConfig);
 
     // Update mixer with new volumes and delays
     await mixer.updateVolumes(appConfig.rtmpVolume, appConfig.browserVolume, appConfig.rtmpDelay, appConfig.browserDelay);

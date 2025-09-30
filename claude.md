@@ -181,8 +181,13 @@ Volume and delay changes require FFmpeg process restart because filter graphs ca
 
 **Performance Impact:**
 - Volume changes: No additional CPU (audio encoding only)
-- RTMP delay changes: Requires video re-encoding (libx264 ultrafast preset)
+- RTMP delay changes: Requires video re-encoding at 6000kbps (libx264 ultrafast preset)
 - Browser delay changes: Audio only (no video re-encoding)
+
+**Video Bitrate Behavior:**
+- No RTMP delay: Video copied (original bitrate preserved)
+- With RTMP delay: Video re-encoded at configurable bitrate (default 6000kbps)
+- Configurable via `VIDEO_BITRATE` environment variable
 
 **Alternative Approach** (Future improvement):
 - Use FFmpeg's `zmq` or `tcp` filter controllers for real-time adjustment
@@ -229,6 +234,7 @@ Dashboard receives real-time updates every 2 seconds:
 | BROWSER_AUDIO_VOLUME | Browser audio level (0-200) | 100 |
 | RTMP_AUDIO_DELAY | RTMP delay in ms (0-5000) | 0 |
 | BROWSER_AUDIO_DELAY | Browser delay in ms (0-5000) | 0 |
+| VIDEO_BITRATE | Video bitrate when re-encoding | 6000k |
 | BROWSER_ACTIONS | JSON array of actions | [] |
 | BROWSER_CUSTOM_JS | JavaScript to inject | "" |
 
@@ -241,9 +247,15 @@ Dashboard receives real-time updates every 2 seconds:
 ### Runtime Configuration
 
 All settings can be updated via:
-- Web dashboard UI
+- Web dashboard UI (automatically persisted to `config.json`)
 - REST API (`POST /api/config`)
 - Direct modification during operation
+
+**Persistence:**
+- Configuration saved to `config.json` on every update
+- Automatically loaded on server startup
+- Overrides environment variables with saved values
+- `config.json` is gitignored (local to each deployment)
 
 ## Deployment
 

@@ -81,6 +81,8 @@ Open http://your-droplet-ip:3000
 
 ## Configuration
 
+**Persistence:** All settings saved via the dashboard are automatically persisted to `config.json` and will be loaded when the server restarts.
+
 ### RTMP Settings
 
 **Input RTMP URL:**

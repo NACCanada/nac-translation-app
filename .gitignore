@@ -11,6 +11,9 @@ yarn.lock
 .env.local
 .env.*.local
 
+# Configuration
+config.json
+
 # Logs
 *.log
 logs/
