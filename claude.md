@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This application provides real-time audio translation overlay for RTMP livestreams. It accepts an incoming RTMP video stream, captures audio from a browser source (typically a translation service), mixes both audio tracks with independent volume controls, and outputs the combined stream to a destination RTMP server (YouTube, Vimeo, etc.).
+This application provides real-time audio translation overlay for RTMP livestreams. It accepts an incoming RTMP video stream, captures audio from various sources (browser, virtual audio device, or direct URL), mixes audio tracks with independent volume and delay controls, and outputs the combined stream to a destination RTMP server (YouTube, Vimeo, etc.).
 
 ## Architecture
 
@@ -14,21 +14,34 @@ This application provides real-time audio translation overlay for RTMP livestrea
    - Coordinates browser audio capture and FFmpeg mixing pipeline
 
 2. **Browser Audio Capture** (`browser-audio.js`)
-   - Uses Puppeteer to launch headless Chrome
+   - Uses Puppeteer to launch headless Chrome (optional)
    - Navigates to translation website
    - Executes automated interactions (clicks, form fills, etc.)
-   - Captures audio output from browser
+   - Supports 4 audio capture modes:
+     - **Browser Mode**: Silent placeholder (future CDP capture)
+     - **Device Mode**: Captures from virtual audio device (BlackHole/PulseAudio)
+     - **URL Mode**: Direct audio stream ingestion
+     - **Disabled Mode**: RTMP passthrough only
 
 3. **RTMP Mixer** (`mixer.js`)
    - Uses FFmpeg via fluent-ffmpeg wrapper
    - Ingests RTMP video stream (video + audio)
-   - Mixes RTMP audio with browser audio
-   - Applies independent volume controls
+   - Mixes RTMP audio with browser/device audio
+   - Applies independent volume controls (0-200%)
+   - Applies independent delay controls (0-5000ms)
+   - RTMP delay affects both video and audio together
    - Outputs combined stream to RTMP destination
 
-4. **Web Dashboard** (`public/index.html`)
+4. **RTMP Server** (`node-media-server`)
+   - Built-in RTMP server on port 1935
+   - Accepts incoming RTMP streams
+   - No external RTMP server needed
+
+5. **Web Dashboard** (`public/index.html`)
    - Configuration interface
+   - Audio mode selector (4 modes)
    - Volume controls (0-200% for each source)
+   - Delay controls (0-5000ms for sync)
    - Browser automation setup
    - Real-time status monitoring
    - Start/stop controls
@@ -64,38 +77,76 @@ This application provides real-time audio translation overlay for RTMP livestrea
 
 ## Technical Implementation
 
-### FFmpeg Audio Mixing
+### FFmpeg Audio/Video Processing
 
 The mixer uses FFmpeg's complex filter graph to:
 
-1. **Video Passthrough**: `-c:v copy` - No video re-encoding, preserves quality and reduces CPU
-2. **Audio Volume Control**: `volume` filter applied independently to each source
-3. **Audio Mixing**: `amix` filter combines both audio streams
-4. **Output Encoding**: AAC audio codec at 128kbps for RTMP compatibility
+1. **Video Processing**:
+   - No delay: `-c:v copy` - No re-encoding, preserves quality and reduces CPU
+   - With delay: `-c:v libx264 -preset ultrafast` - Fast re-encode required for timing shift
+   - Delay applied via `setpts=PTS+delay/TB` filter
 
-**Filter Chain Example:**
+2. **Audio Volume Control**: `volume` filter applied independently to each source (0-200%)
+
+3. **Audio Delay Control**: `adelay` filter applied independently to each source (0-5000ms)
+   - RTMP delay: Affects both video and audio together (keeps in sync)
+   - Browser delay: Audio only
+
+4. **Audio Mixing**: `amix` filter combines both audio streams
+
+5. **Output Encoding**: AAC audio codec at 128kbps for RTMP compatibility
+
+**Filter Chain Example (with delays):**
 ```
-[0:a]volume=1.0[a0];[1:a]volume=1.5[a1];[a0][a1]amix=inputs=2:duration=longest[aout]
+[0:v]setpts=PTS+0.5/TB[v0];
+[0:a]volume=1.0,adelay=500|500[a0];
+[1:a]volume=1.5,adelay=1000|1000[a1];
+[a0][a1]amix=inputs=2:duration=longest[aout]
 ```
 
-### Browser Audio Capture Strategy
+### Audio Capture Modes
 
-Currently, the browser audio capture creates a placeholder for audio extraction. For production, there are several approaches:
+The application supports 4 different audio capture modes, selectable from the dashboard:
 
-1. **Virtual Audio Cable** (Most reliable)
-   - PulseAudio on Linux
-   - BlackHole on macOS
-   - Route browser audio to virtual device, FFmpeg captures from device
+#### 1. Browser Mode (Default - Silent Placeholder)
+- Opens webpage with Puppeteer
+- Executes automation actions
+- Currently generates silent WAV file as placeholder
+- Future: Will implement CDP audio capture
 
-2. **Screen/Audio Recording** (Implemented in future versions)
-   - Use Puppeteer CDP (Chrome DevTools Protocol)
-   - Capture audio streams directly from browser tabs
-   - Pipe to FFmpeg via stdin
+#### 2. Device Mode (Production - WORKS!)
+**macOS:**
+```bash
+# Install BlackHole virtual audio driver
+brew install blackhole-2ch
 
-3. **WebRTC Audio Capture**
-   - Page scripts capture getUserMedia audio
-   - Stream to WebSocket server
-   - Convert to FFmpeg input
+# FFmpeg captures from device
+ffmpeg -f avfoundation -i :BlackHole\ 2ch ...
+```
+
+**Linux:**
+```bash
+# Create PulseAudio virtual sink
+pactl load-module module-null-sink sink_name=virtual_speaker
+
+# FFmpeg captures from monitor
+ffmpeg -f pulse -i virtual_speaker.monitor ...
+```
+
+- Opens browser and routes audio to virtual device
+- FFmpeg captures real audio from device
+- **This mode works for actual audio mixing!**
+
+#### 3. URL Mode (Simplest)
+- Direct HTTP/HTTPS audio stream ingestion
+- No browser needed
+- FFmpeg ingests directly: `ffmpeg -i https://example.com/audio.mp3 ...`
+- Perfect if translation service provides audio-only endpoint
+
+#### 4. Disabled Mode
+- RTMP video/audio passes through unchanged
+- No translation audio mixing
+- Use for testing video pipeline
 
 ### Browser Automation
 
@@ -119,18 +170,23 @@ Puppeteer provides several automation capabilities:
 { "type": "wait", "selector": ".audio-player" }
 ```
 
-### Real-time Volume Adjustment
+### Real-time Volume & Delay Adjustment
 
-Volume changes require FFmpeg process restart because filter graphs cannot be modified at runtime. The implementation:
+Volume and delay changes require FFmpeg process restart because filter graphs cannot be modified at runtime. The implementation:
 
 1. Stops current FFmpeg process gracefully (SIGTERM)
 2. Waits for process to end
-3. Restarts with new volume parameters
+3. Restarts with new volume/delay parameters
 4. Brief interruption (~1-2 seconds) in output stream
+
+**Performance Impact:**
+- Volume changes: No additional CPU (audio encoding only)
+- RTMP delay changes: Requires video re-encoding (libx264 ultrafast preset)
+- Browser delay changes: Audio only (no video re-encoding)
 
 **Alternative Approach** (Future improvement):
 - Use FFmpeg's `zmq` or `tcp` filter controllers for real-time adjustment
-- Requires more complex filter setup but allows seamless volume changes
+- Requires more complex filter setup but allows seamless changes
 
 ### WebSocket Status Updates
 
@@ -163,13 +219,24 @@ Dashboard receives real-time updates every 2 seconds:
 | RTMP_INPUT_PORT | RTMP server port | 1935 |
 | RTMP_OUTPUT_URL | Destination RTMP server | - |
 | RTMP_OUTPUT_KEY | Stream key | - |
+| AUDIO_MODE | Audio capture mode | browser |
 | BROWSER_URL | Translation source URL | - |
 | BROWSER_WIDTH | Browser viewport width | 1920 |
 | BROWSER_HEIGHT | Browser viewport height | 1080 |
+| AUDIO_DEVICE_NAME | Virtual audio device name | - |
+| AUDIO_URL | Direct audio stream URL | - |
 | RTMP_AUDIO_VOLUME | RTMP audio level (0-200) | 100 |
 | BROWSER_AUDIO_VOLUME | Browser audio level (0-200) | 100 |
+| RTMP_AUDIO_DELAY | RTMP delay in ms (0-5000) | 0 |
+| BROWSER_AUDIO_DELAY | Browser delay in ms (0-5000) | 0 |
 | BROWSER_ACTIONS | JSON array of actions | [] |
 | BROWSER_CUSTOM_JS | JavaScript to inject | "" |
+
+**Audio Mode Options:**
+- `browser` - Silent placeholder (automation testing)
+- `device` - Virtual audio device capture (BlackHole/PulseAudio)
+- `url` - Direct audio URL ingestion
+- `disabled` - RTMP passthrough only
 
 ### Runtime Configuration
 
