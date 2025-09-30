@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  rtmp-mixer:
+    build: .
+    container_name: rtmp-translation-mixer
+    ports:
+      - "3000:3000"    # Dashboard
+      - "1935:1935"    # RTMP input
+    environment:
+      - PORT=3000
+      - RTMP_INPUT_PORT=1935
+      - RTMP_OUTPUT_URL=${RTMP_OUTPUT_URL}
+      - RTMP_OUTPUT_KEY=${RTMP_OUTPUT_KEY}
+      - BROWSER_URL=${BROWSER_URL}
+      - BROWSER_WIDTH=1920
+      - BROWSER_HEIGHT=1080
+      - RTMP_AUDIO_VOLUME=100
+      - BROWSER_AUDIO_VOLUME=100
+    volumes:
+      - ./audio-temp:/app/audio-temp
+    restart: unless-stopped
+    shm_size: '2gb'  # Increase shared memory for Chrome
+    cap_add:
+      - SYS_ADMIN  # Required for Chrome sandbox

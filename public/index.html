@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RTMP Translation Mixer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #fff;
+            margin-bottom: 10px;
+        }
+
+        .status-bar {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.active {
+            background: #4CAF50;
+            box-shadow: 0 0 10px #4CAF50;
+        }
+
+        .card {
+            background: #2d2d2d;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            color: #fff;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #b0b0b0;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="number"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            background: #1a1a1a;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: #4CAF50;
+        }
+
+        textarea {
+            font-family: monospace;
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .slider-group {
+            margin-bottom: 20px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .slider-value {
+            color: #4CAF50;
+            font-weight: bold;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #1a1a1a;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4CAF50;
+            cursor: pointer;
+            border: none;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #45a049;
+        }
+
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        .btn-secondary {
+            background: #555;
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #666;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .actions-list {
+            background: #1a1a1a;
+            border: 1px solid #404040;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .action-item {
+            background: #2d2d2d;
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-size: 13px;
+            font-family: monospace;
+        }
+
+        .help-text {
+            font-size: 12px;
+            color: #888;
+            margin-top: 5px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .error {
+            background: #f44336;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .success {
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RTMP Translation Mixer</h1>
+
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="browserStatus"></div>
+                <span>Browser: <span id="browserStatusText">Stopped</span></span>
+            </div>
+            <div class="status-indicator">
+                <div class="status-dot" id="mixerStatus"></div>
+                <span>Mixer: <span id="mixerStatusText">Stopped</span></span>
+            </div>
+        </div>
+
+        <div id="messageArea"></div>
+
+        <div class="card">
+            <h2>Stream Control</h2>
+            <div class="button-group">
+                <button class="btn-primary" onclick="startStreaming()">Start Streaming</button>
+                <button class="btn-danger" onclick="stopStreaming()">Stop Streaming</button>
+                <button class="btn-secondary" onclick="loadConfig()">Refresh Config</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Volume Controls</h2>
+            <div class="slider-group">
+                <div class="slider-label">
+                    <label>RTMP Stream Volume</label>
+                    <span class="slider-value" id="rtmpVolumeValue">100%</span>
+                </div>
+                <input type="range" id="rtmpVolume" min="0" max="200" value="100" oninput="updateVolumeDisplay('rtmp')">
+            </div>
+            <div class="slider-group">
+                <div class="slider-label">
+                    <label>Browser Audio Volume</label>
+                    <span class="slider-value" id="browserVolumeValue">100%</span>
+                </div>
+                <input type="range" id="browserVolume" min="0" max="200" value="100" oninput="updateVolumeDisplay('browser')">
+            </div>
+            <button class="btn-primary" onclick="updateVolumes()">Apply Volume Changes</button>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>RTMP Configuration</h2>
+                <div class="form-group">
+                    <label>RTMP Input URL</label>
+                    <input type="text" id="rtmpInput" placeholder="rtmp://localhost:1935/live/stream">
+                </div>
+                <div class="form-group">
+                    <label>Output RTMP Server</label>
+                    <input type="text" id="rtmpOutputUrl" placeholder="rtmp://a.rtmp.youtube.com/live2">
+                    <div class="help-text">YouTube or Vimeo RTMP server URL</div>
+                </div>
+                <div class="form-group">
+                    <label>Stream Key</label>
+                    <input type="text" id="rtmpOutputKey" placeholder="your-stream-key">
+                </div>
+                <button class="btn-secondary" onclick="saveConfig()">Save Configuration</button>
+            </div>
+
+            <div class="card">
+                <h2>Browser Audio Source</h2>
+                <div class="form-group">
+                    <label>Browser URL</label>
+                    <input type="text" id="browserUrl" placeholder="https://example.com/translation">
+                </div>
+                <div class="form-group">
+                    <label>Browser Width</label>
+                    <input type="number" id="browserWidth" value="1920">
+                </div>
+                <div class="form-group">
+                    <label>Browser Height</label>
+                    <input type="number" id="browserHeight" value="1080">
+                </div>
+                <button class="btn-secondary" onclick="saveConfig()">Save Configuration</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Browser Automation</h2>
+            <div class="form-group">
+                <label>Actions (JSON)</label>
+                <textarea id="browserActions" placeholder='[{"type":"click","selector":"#play-button","delay":1000}]'></textarea>
+                <div class="help-text">
+                    Actions: click, wait, type, script<br>
+                    Example: {"type":"click","selector":"#play-button","delay":1000}
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Custom JavaScript</label>
+                <textarea id="browserCustomJs" placeholder="document.querySelector('#play-button').click();"></textarea>
+                <div class="help-text">JavaScript to execute on page load</div>
+            </div>
+            <button class="btn-secondary" onclick="saveConfig()">Save Configuration</button>
+        </div>
+    </div>
+
+    <script>
+        let ws;
+
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+            ws.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === 'status') {
+                    updateStatus(message.data);
+                }
+            };
+
+            ws.onclose = () => {
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function updateStatus(status) {
+            const browserDot = document.getElementById('browserStatus');
+            const browserText = document.getElementById('browserStatusText');
+            const mixerDot = document.getElementById('mixerStatus');
+            const mixerText = document.getElementById('mixerStatusText');
+
+            if (status.browser.isRunning) {
+                browserDot.classList.add('active');
+                browserText.textContent = 'Running';
+            } else {
+                browserDot.classList.remove('active');
+                browserText.textContent = 'Stopped';
+            }
+
+            if (status.mixer.isRunning) {
+                mixerDot.classList.add('active');
+                mixerText.textContent = 'Streaming';
+            } else {
+                mixerDot.classList.remove('active');
+                mixerText.textContent = 'Stopped';
+            }
+        }
+
+        function showMessage(message, type = 'success') {
+            const messageArea = document.getElementById('messageArea');
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = message;
+            messageArea.appendChild(div);
+            setTimeout(() => div.remove(), 5000);
+        }
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+
+                document.getElementById('rtmpInput').value = config.rtmpInput || '';
+                document.getElementById('rtmpOutputUrl').value = config.rtmpOutputUrl || '';
+                document.getElementById('rtmpOutputKey').value = config.rtmpOutputKey || '';
+                document.getElementById('browserUrl').value = config.browserUrl || '';
+                document.getElementById('browserWidth').value = config.browserWidth || 1920;
+                document.getElementById('browserHeight').value = config.browserHeight || 1080;
+                document.getElementById('rtmpVolume').value = config.rtmpVolume || 100;
+                document.getElementById('browserVolume').value = config.browserVolume || 100;
+                document.getElementById('browserActions').value = JSON.stringify(config.browserActions || [], null, 2);
+                document.getElementById('browserCustomJs').value = config.browserCustomJs || '';
+
+                updateVolumeDisplay('rtmp');
+                updateVolumeDisplay('browser');
+
+                showMessage('Configuration loaded');
+            } catch (error) {
+                showMessage('Failed to load configuration: ' + error.message, 'error');
+            }
+        }
+
+        async function saveConfig() {
+            try {
+                const config = {
+                    rtmpInput: document.getElementById('rtmpInput').value,
+                    rtmpOutputUrl: document.getElementById('rtmpOutputUrl').value,
+                    rtmpOutputKey: document.getElementById('rtmpOutputKey').value,
+                    browserUrl: document.getElementById('browserUrl').value,
+                    browserWidth: parseInt(document.getElementById('browserWidth').value),
+                    browserHeight: parseInt(document.getElementById('browserHeight').value),
+                    rtmpVolume: parseInt(document.getElementById('rtmpVolume').value),
+                    browserVolume: parseInt(document.getElementById('browserVolume').value),
+                    browserActions: JSON.parse(document.getElementById('browserActions').value || '[]'),
+                    browserCustomJs: document.getElementById('browserCustomJs').value
+                };
+
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Configuration saved');
+                } else {
+                    showMessage('Failed to save configuration: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to save configuration: ' + error.message, 'error');
+            }
+        }
+
+        async function startStreaming() {
+            try {
+                await saveConfig();
+                const response = await fetch('/api/start', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Streaming started');
+                } else {
+                    showMessage('Failed to start streaming: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to start streaming: ' + error.message, 'error');
+            }
+        }
+
+        async function stopStreaming() {
+            try {
+                const response = await fetch('/api/stop', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Streaming stopped');
+                } else {
+                    showMessage('Failed to stop streaming: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to stop streaming: ' + error.message, 'error');
+            }
+        }
+
+        function updateVolumeDisplay(type) {
+            const volumeInput = document.getElementById(`${type}Volume`);
+            const volumeDisplay = document.getElementById(`${type}VolumeValue`);
+            volumeDisplay.textContent = volumeInput.value + '%';
+        }
+
+        async function updateVolumes() {
+            try {
+                const rtmpVolume = parseInt(document.getElementById('rtmpVolume').value);
+                const browserVolume = parseInt(document.getElementById('browserVolume').value);
+
+                const response = await fetch('/api/volumes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rtmpVolume, browserVolume })
+                });
+
+                const result = await response.json();
+                if (result.success) {
+                    showMessage('Volumes updated');
+                } else {
+                    showMessage('Failed to update volumes: ' + result.error, 'error');
+                }
+            } catch (error) {
+                showMessage('Failed to update volumes: ' + error.message, 'error');
+            }
+        }
+
+        // Initialize
+        connectWebSocket();
+        loadConfig();
+    </script>
+</body>
+</html>
