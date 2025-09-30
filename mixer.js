@@ -61,37 +61,61 @@ class RTMPMixer {
           ]);
       }
 
-      // Complex filter for audio mixing with delays
+      // Complex filter for audio mixing with delays and video delay
       let filterComplex;
       if (this.config.browserAudioPath) {
         // Mix both audio streams with independent volume controls and delays
-        filterComplex = [
-          // Adjust RTMP audio volume and delay
-          rtmpDelaySeconds > 0
-            ? `[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[a0]`
-            : `[0:a]volume=${rtmpVolumeFilter}[a0]`,
-          // Adjust browser audio volume and delay
-          browserDelaySeconds > 0
-            ? `[1:a]volume=${browserVolumeFilter},adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`
-            : `[1:a]volume=${browserVolumeFilter}[a1]`,
-          // Mix both audio streams
-          `[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]`
-        ].join(';');
-      } else {
-        // Only RTMP audio with volume adjustment and delay
+        // Also delay RTMP video to match RTMP audio delay
+        const filters = [];
+
+        // Delay RTMP video if RTMP delay is set
         if (rtmpDelaySeconds > 0) {
-          filterComplex = `[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`;
+          filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
         } else {
-          filterComplex = `[0:a]volume=${rtmpVolumeFilter}[aout]`;
+          filters.push(`[0:v]copy[v0]`);
         }
+
+        // Adjust RTMP audio volume and delay
+        if (rtmpDelaySeconds > 0) {
+          filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[a0]`);
+        } else {
+          filters.push(`[0:a]volume=${rtmpVolumeFilter}[a0]`);
+        }
+
+        // Adjust browser audio volume and delay
+        if (browserDelaySeconds > 0) {
+          filters.push(`[1:a]volume=${browserVolumeFilter},adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`);
+        } else {
+          filters.push(`[1:a]volume=${browserVolumeFilter}[a1]`);
+        }
+
+        // Mix both audio streams
+        filters.push(`[a0][a1]amix=inputs=2:duration=longest:dropout_transition=2[aout]`);
+
+        filterComplex = filters.join(';');
+      } else {
+        // Only RTMP with volume adjustment and delay (video + audio together)
+        const filters = [];
+
+        // Delay RTMP video if RTMP delay is set
+        if (rtmpDelaySeconds > 0) {
+          filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
+          filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
+        } else {
+          filters.push(`[0:v]copy[v0]`);
+          filters.push(`[0:a]volume=${rtmpVolumeFilter}[aout]`);
+        }
+
+        filterComplex = filters.join(';');
       }
 
       this.ffmpegProcess
         .complexFilter(filterComplex)
         .outputOptions([
-          '-map 0:v',           // Map video from RTMP input
+          '-map [v0]',          // Map delayed/copied video
           '-map [aout]',        // Map mixed audio
-          '-c:v copy',          // Copy video codec (no re-encoding)
+          '-c:v libx264',       // Re-encode video (required for setpts)
+          '-preset ultrafast',  // Fast encoding
           '-c:a aac',           // Encode audio to AAC
           '-b:a 128k',          // Audio bitrate
           '-ar 44100',          // Audio sample rate

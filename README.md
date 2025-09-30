@@ -184,12 +184,14 @@ document.querySelector('#mute-button').click();
 - **Browser Audio Volume:** 0-200% (100 = original volume)
 - Adjust in real-time while streaming
 
-**Delay (Audio Sync):**
-- **RTMP Audio Delay:** 0-5000ms
-- **Browser Audio Delay:** 0-5000ms
-- Use to synchronize audio feeds if one is ahead/behind
-- Applies FFmpeg `adelay` filter
+**Delay (Stream Sync):**
+- **RTMP Stream Delay:** 0-5000ms (delays video + audio together)
+- **Browser Audio Delay:** 0-5000ms (audio only)
+- Use to synchronize feeds if one is ahead/behind
+- RTMP: Applies FFmpeg `setpts` (video) and `adelay` (audio) filters
+- Browser: Applies FFmpeg `adelay` filter
 - Updates require stream restart (~1-2s interruption)
+- **Note:** RTMP delay requires video re-encoding (uses `libx264 -preset ultrafast`)
 
 ## Usage Workflow
 
