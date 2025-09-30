@@ -50,16 +50,19 @@ class RTMPMixer {
       // Input 1: RTMP stream (video + audio)
       this.ffmpegProcess.input(this.config.inputRtmpUrl)
         .inputOptions([
+          '-thread_queue_size', '512',
           '-re',
-          '-fflags +genpts'
+          '-fflags', '+genpts'
         ]);
 
       // Input 2: Browser audio (if available)
       if (this.config.browserAudioPath) {
         this.ffmpegProcess.input(this.config.browserAudioPath)
           .inputOptions([
-            '-stream_loop -1',  // Loop the audio file
-            '-re'
+            '-re',                // Read at native frame rate
+            '-stream_loop', '-1', // Loop the audio file
+            '-thread_queue_size', '1024',
+            '-fflags', '+igndts'  // Ignore DTS on separate streams
           ]);
       }
 
@@ -83,7 +86,7 @@ class RTMPMixer {
           filters.push(`[0:a]volume=${rtmpVolumeFilter}[a0]`);
         }
 
-        // Adjust browser audio volume and delay
+        // Adjust browser audio volume and delay (already 48kHz from capture)
         if (browserDelaySeconds > 0) {
           filters.push(`[1:a]volume=${browserVolumeFilter},adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`);
         } else {
@@ -139,8 +142,9 @@ class RTMPMixer {
       // Add audio encoding options
       outputOptions.push(
         '-c:a aac',           // Encode audio to AAC
-        '-b:a 128k',          // Audio bitrate
-        '-ar 44100',          // Audio sample rate
+        '-b:a 192k',          // Audio bitrate (increased for better quality)
+        '-ar 48000',          // Audio sample rate (match input processing)
+        '-ac 2',              // Stereo channels
         '-f flv',             // FLV format for RTMP
         '-flvflags no_duration_filesize'
       );
