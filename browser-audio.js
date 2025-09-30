@@ -62,24 +62,29 @@ class BrowserAudioCapture {
           navigator.mozGetUserMedia;
       });
 
-      console.log(`Navigating to ${config.url}...`);
-      await this.page.goto(config.url, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
-      });
+      // Only navigate if URL is provided
+      if (config.url && config.url.trim() !== '') {
+        console.log(`Navigating to ${config.url}...`);
+        await this.page.goto(config.url, {
+          waitUntil: 'networkidle2',
+          timeout: 30000
+        });
 
-      // Inject custom JavaScript if provided
-      if (config.customJs) {
-        console.log('Injecting custom JavaScript...');
-        await this.page.evaluate(config.customJs);
-      }
-
-      // Execute browser automation actions
-      if (config.actions && config.actions.length > 0) {
-        console.log(`Executing ${config.actions.length} browser actions...`);
-        for (const action of config.actions) {
-          await this.executeAction(action);
+        // Inject custom JavaScript if provided
+        if (config.customJs) {
+          console.log('Injecting custom JavaScript...');
+          await this.page.evaluate(config.customJs);
         }
+
+        // Execute browser automation actions
+        if (config.actions && config.actions.length > 0) {
+          console.log(`Executing ${config.actions.length} browser actions...`);
+          for (const action of config.actions) {
+            await this.executeAction(action);
+          }
+        }
+      } else {
+        console.log('No browser URL provided - browser launched but not navigating');
       }
 
       this.isRunning = true;

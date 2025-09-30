@@ -26,6 +26,15 @@ class RTMPMixer {
     this.config = { ...this.config, ...config };
 
     try {
+      // Convert volume percentage to FFmpeg filter value
+      // 100% = 1.0, 200% = 2.0, 50% = 0.5
+      const rtmpVolumeFilter = this.config.rtmpVolume / 100;
+      const browserVolumeFilter = this.config.browserVolume / 100;
+
+      // Convert delay from milliseconds to seconds
+      const rtmpDelaySeconds = this.config.rtmpDelay / 1000;
+      const browserDelaySeconds = this.config.browserDelay / 1000;
+
       console.log('Starting RTMP mixer...');
       console.log('Input RTMP:', this.config.inputRtmpUrl);
       console.log('Output RTMP:', this.config.outputRtmpUrl);
@@ -35,15 +44,6 @@ class RTMPMixer {
       console.log('RTMP Delay:', this.config.rtmpDelay, 'ms');
       console.log('Browser Delay:', this.config.browserDelay, 'ms');
       console.log('Video Codec:', rtmpDelaySeconds > 0 ? `libx264 @ ${this.config.videoBitrate}` : 'copy (passthrough)');
-
-      // Convert volume percentage to FFmpeg filter value
-      // 100% = 1.0, 200% = 2.0, 50% = 0.5
-      const rtmpVolumeFilter = this.config.rtmpVolume / 100;
-      const browserVolumeFilter = this.config.browserVolume / 100;
-
-      // Convert delay from milliseconds to seconds
-      const rtmpDelaySeconds = this.config.rtmpDelay / 1000;
-      const browserDelaySeconds = this.config.browserDelay / 1000;
 
       this.ffmpegProcess = ffmpeg();
 
