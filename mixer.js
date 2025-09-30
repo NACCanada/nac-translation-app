@@ -12,7 +12,8 @@ class RTMPMixer {
       rtmpVolume: 100,
       browserVolume: 100,
       rtmpDelay: 0,
-      browserDelay: 0
+      browserDelay: 0,
+      videoBitrate: '6000k'
     };
   }
 
@@ -33,6 +34,7 @@ class RTMPMixer {
       console.log('Browser Volume:', this.config.browserVolume);
       console.log('RTMP Delay:', this.config.rtmpDelay, 'ms');
       console.log('Browser Delay:', this.config.browserDelay, 'ms');
+      console.log('Video Codec:', rtmpDelaySeconds > 0 ? `libx264 @ ${this.config.videoBitrate}` : 'copy (passthrough)');
 
       // Convert volume percentage to FFmpeg filter value
       // 100% = 1.0, 200% = 2.0, 50% = 0.5
@@ -109,19 +111,37 @@ class RTMPMixer {
         filterComplex = filters.join(';');
       }
 
+      // Build output options based on whether video needs re-encoding
+      const outputOptions = [
+        '-map [v0]',          // Map delayed/copied video
+        '-map [aout]',        // Map mixed audio
+      ];
+
+      // Add video encoding options
+      if (rtmpDelaySeconds > 0) {
+        // Re-encode video with specified bitrate when delay is applied
+        outputOptions.push(
+          '-c:v libx264',                    // Re-encode video (required for setpts)
+          '-preset ultrafast',               // Fast encoding
+          `-b:v ${this.config.videoBitrate}` // Video bitrate
+        );
+      } else {
+        // Copy video codec when no delay
+        outputOptions.push('-c:v copy');
+      }
+
+      // Add audio encoding options
+      outputOptions.push(
+        '-c:a aac',           // Encode audio to AAC
+        '-b:a 128k',          // Audio bitrate
+        '-ar 44100',          // Audio sample rate
+        '-f flv',             // FLV format for RTMP
+        '-flvflags no_duration_filesize'
+      );
+
       this.ffmpegProcess
         .complexFilter(filterComplex)
-        .outputOptions([
-          '-map [v0]',          // Map delayed/copied video
-          '-map [aout]',        // Map mixed audio
-          '-c:v libx264',       // Re-encode video (required for setpts)
-          '-preset ultrafast',  // Fast encoding
-          '-c:a aac',           // Encode audio to AAC
-          '-b:a 128k',          // Audio bitrate
-          '-ar 44100',          // Audio sample rate
-          '-f flv',             // FLV format for RTMP
-          '-flvflags no_duration_filesize'
-        ])
+        .outputOptions(outputOptions)
         .output(this.config.outputRtmpUrl);
 
       // Event handlers

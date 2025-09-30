@@ -31,6 +31,7 @@ let appConfig = {
   browserVolume: parseInt(process.env.BROWSER_AUDIO_VOLUME) || 100,
   rtmpDelay: parseInt(process.env.RTMP_AUDIO_DELAY) || 0, // Delay in milliseconds
   browserDelay: parseInt(process.env.BROWSER_AUDIO_DELAY) || 0, // Delay in milliseconds
+  videoBitrate: process.env.VIDEO_BITRATE || '6000k', // Video bitrate when re-encoding
   browserActions: [],
   browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
   audioMode: process.env.AUDIO_MODE || 'browser', // 'browser', 'device', 'url', 'disabled'
@@ -164,7 +165,8 @@ app.post('/api/start', async (req, res) => {
       rtmpVolume: appConfig.rtmpVolume,
       browserVolume: appConfig.browserVolume,
       rtmpDelay: appConfig.rtmpDelay,
-      browserDelay: appConfig.browserDelay
+      browserDelay: appConfig.browserDelay,
+      videoBitrate: appConfig.videoBitrate
     });
 
     const message = browserAudioPath

@@ -191,7 +191,7 @@ document.querySelector('#mute-button').click();
 - RTMP: Applies FFmpeg `setpts` (video) and `adelay` (audio) filters
 - Browser: Applies FFmpeg `adelay` filter
 - Updates require stream restart (~1-2s interruption)
-- **Note:** RTMP delay requires video re-encoding (uses `libx264 -preset ultrafast`)
+- **Note:** RTMP delay requires video re-encoding at 6000kbps (libx264 ultrafast)
 
 ## Usage Workflow
 
