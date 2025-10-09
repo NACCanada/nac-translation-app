@@ -53,12 +53,11 @@ class RTMPMixer {
       this.ffmpegProcess.input(this.config.inputRtmpUrl)
         .inputOptions([
           '-thread_queue_size', '4096',
-          '-fflags', '+genpts+igndts',  // Generate PTS and ignore input DTS
+          '-fflags', '+genpts',
           '-analyzeduration', '10000000',
           '-probesize', '10000000',
           '-rtmp_live', 'live',
-          '-rtmp_buffer', '5000',
-          '-use_wallclock_as_timestamps', '1'  // Use system time for timestamps
+          '-rtmp_buffer', '5000'
         ]);
 
       // Input 2: Browser audio (if available)
@@ -149,10 +148,7 @@ class RTMPMixer {
         );
       } else {
         // Copy video codec when no delay
-        outputOptions.push(
-          '-c:v copy',
-          '-bsf:v', 'dump_extra'  // Ensure video extradata is present
-        );
+        outputOptions.push('-c:v copy');
       }
 
       // Add audio encoding options
@@ -162,8 +158,7 @@ class RTMPMixer {
         '-ar 48000',          // Audio sample rate (match input processing)
         '-ac 2',              // Stereo channels
         '-f flv',             // FLV format for RTMP
-        '-flvflags', 'no_duration_filesize+no_metadata',
-        '-bsf:a', 'aac_adtstoasc'  // Convert ADTS to ASC for better compatibility
+        '-flvflags no_duration_filesize'
       );
 
       this.ffmpegProcess
