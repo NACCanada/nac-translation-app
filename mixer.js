@@ -1,9 +1,11 @@
 const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
+const { exec } = require('child_process');
 
 class RTMPMixer {
   constructor() {
     this.ffmpegProcess = null;
+    this.ffmpegPid = null;
     this.isRunning = false;
     this.config = {
       inputRtmpUrl: '',
@@ -51,11 +53,12 @@ class RTMPMixer {
       this.ffmpegProcess.input(this.config.inputRtmpUrl)
         .inputOptions([
           '-thread_queue_size', '4096',
-          '-fflags', '+genpts',
+          '-fflags', '+genpts+igndts',  // Generate PTS and ignore input DTS
           '-analyzeduration', '10000000',
           '-probesize', '10000000',
           '-rtmp_live', 'live',
-          '-rtmp_buffer', '5000'
+          '-rtmp_buffer', '5000',
+          '-use_wallclock_as_timestamps', '1'  // Use system time for timestamps
         ]);
 
       // Input 2: Browser audio (if available)
@@ -146,7 +149,10 @@ class RTMPMixer {
         );
       } else {
         // Copy video codec when no delay
-        outputOptions.push('-c:v copy');
+        outputOptions.push(
+          '-c:v copy',
+          '-bsf:v', 'dump_extra'  // Ensure video extradata is present
+        );
       }
 
       // Add audio encoding options
@@ -156,7 +162,8 @@ class RTMPMixer {
         '-ar 48000',          // Audio sample rate (match input processing)
         '-ac 2',              // Stereo channels
         '-f flv',             // FLV format for RTMP
-        '-flvflags no_duration_filesize'
+        '-flvflags', 'no_duration_filesize+no_metadata',
+        '-bsf:a', 'aac_adtstoasc'  // Convert ADTS to ASC for better compatibility
       );
 
       this.ffmpegProcess
@@ -198,50 +205,79 @@ class RTMPMixer {
   async stop() {
     if (this.ffmpegProcess) {
       console.log('Stopping FFmpeg process...');
+
       return new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          console.log('FFmpeg did not stop gracefully, forcing kill...');
-          if (this.ffmpegProcess) {
-            try {
-              this.ffmpegProcess.kill('SIGKILL');
-            } catch (err) {
-              console.error('Error force-killing FFmpeg:', err);
+        let resolved = false;
+
+        const cleanupAndResolve = () => {
+          if (!resolved) {
+            resolved = true;
+            this.isRunning = false;
+            this.ffmpegProcess = null;
+            this.ffmpegPid = null;
+
+            // On Windows, kill all ffmpeg.exe processes as a last resort
+            if (process.platform === 'win32') {
+              console.log('Ensuring all FFmpeg processes are terminated on Windows...');
+              exec('taskkill /F /IM ffmpeg.exe /T', (err) => {
+                if (err && !err.message.includes('not found')) {
+                  console.error('Error running taskkill:', err.message);
+                }
+                resolve();
+              });
+            } else {
+              resolve();
             }
           }
-          this.isRunning = false;
-          this.ffmpegProcess = null;
-          resolve();
-        }, 5000); // 5 second timeout
+        };
 
+        // Set timeout for cleanup
+        const timeout = setTimeout(() => {
+          console.log('FFmpeg did not stop within timeout, forcing cleanup...');
+          cleanupAndResolve();
+        }, 3000); // 3 second timeout
+
+        // Set up event listeners
         this.ffmpegProcess.on('end', () => {
           clearTimeout(timeout);
-          this.isRunning = false;
-          this.ffmpegProcess = null;
-          resolve();
+          console.log('FFmpeg process ended gracefully');
+          cleanupAndResolve();
         });
 
         this.ffmpegProcess.on('error', (err) => {
           clearTimeout(timeout);
-          console.error('FFmpeg error during stop:', err);
-          this.isRunning = false;
-          this.ffmpegProcess = null;
-          resolve();
+          console.log('FFmpeg process error during stop:', err.message);
+          cleanupAndResolve();
         });
 
-        // On Windows, SIGTERM doesn't work well, so use SIGKILL directly
-        const signal = process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM';
-        console.log(`Sending ${signal} to FFmpeg process...`);
+        // Try to kill the process
         try {
-          this.ffmpegProcess.kill(signal);
+          // On Windows, use taskkill immediately for reliability
+          if (process.platform === 'win32') {
+            console.log('Using taskkill to stop FFmpeg on Windows...');
+            exec('taskkill /F /IM ffmpeg.exe /T', (err) => {
+              if (err && !err.message.includes('not found')) {
+                console.error('taskkill error:', err.message);
+              }
+              // Give it a moment then cleanup
+              setTimeout(() => {
+                clearTimeout(timeout);
+                cleanupAndResolve();
+              }, 1000);
+            });
+          } else {
+            // On Unix, use SIGTERM for graceful shutdown
+            console.log('Sending SIGTERM to FFmpeg process...');
+            this.ffmpegProcess.kill('SIGTERM');
+          }
         } catch (err) {
           clearTimeout(timeout);
-          console.error('Error killing FFmpeg process:', err);
-          this.isRunning = false;
-          this.ffmpegProcess = null;
-          resolve();
+          console.error('Error killing FFmpeg process:', err.message);
+          cleanupAndResolve();
         }
       });
     }
+
     this.isRunning = false;
   }
 
