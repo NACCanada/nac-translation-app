@@ -334,7 +334,20 @@ class BrowserAudioCapture {
     // Kill FFmpeg process
     if (this.ffmpegProcess) {
       try {
-        this.ffmpegProcess.kill('SIGTERM');
+        // On Windows, SIGTERM doesn't work well, so use SIGKILL directly
+        const signal = process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM';
+        console.log(`Sending ${signal} to browser FFmpeg process...`);
+        this.ffmpegProcess.kill(signal);
+
+        // Wait a bit for the process to terminate
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // Force kill if still running
+        if (this.ffmpegProcess && !this.ffmpegProcess.killed) {
+          console.log('Force killing browser FFmpeg process...');
+          this.ffmpegProcess.kill('SIGKILL');
+        }
+
         this.ffmpegProcess = null;
       } catch (error) {
         console.error('Error killing FFmpeg process:', error);

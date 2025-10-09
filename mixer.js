@@ -199,12 +199,47 @@ class RTMPMixer {
     if (this.ffmpegProcess) {
       console.log('Stopping FFmpeg process...');
       return new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          console.log('FFmpeg did not stop gracefully, forcing kill...');
+          if (this.ffmpegProcess) {
+            try {
+              this.ffmpegProcess.kill('SIGKILL');
+            } catch (err) {
+              console.error('Error force-killing FFmpeg:', err);
+            }
+          }
+          this.isRunning = false;
+          this.ffmpegProcess = null;
+          resolve();
+        }, 5000); // 5 second timeout
+
         this.ffmpegProcess.on('end', () => {
+          clearTimeout(timeout);
           this.isRunning = false;
           this.ffmpegProcess = null;
           resolve();
         });
-        this.ffmpegProcess.kill('SIGTERM');
+
+        this.ffmpegProcess.on('error', (err) => {
+          clearTimeout(timeout);
+          console.error('FFmpeg error during stop:', err);
+          this.isRunning = false;
+          this.ffmpegProcess = null;
+          resolve();
+        });
+
+        // On Windows, SIGTERM doesn't work well, so use SIGKILL directly
+        const signal = process.platform === 'win32' ? 'SIGKILL' : 'SIGTERM';
+        console.log(`Sending ${signal} to FFmpeg process...`);
+        try {
+          this.ffmpegProcess.kill(signal);
+        } catch (err) {
+          clearTimeout(timeout);
+          console.error('Error killing FFmpeg process:', err);
+          this.isRunning = false;
+          this.ffmpegProcess = null;
+          resolve();
+        }
       });
     }
     this.isRunning = false;
