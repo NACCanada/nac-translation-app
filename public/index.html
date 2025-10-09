@@ -334,6 +334,7 @@
                         <option value="browser">Browser Capture (Silent Placeholder)</option>
                         <option value="device">Virtual Audio Device (BlackHole/PulseAudio)</option>
                         <option value="url">Direct Audio URL</option>
+                        <option value="rtmp">RTMP Audio Stream</option>
                     </select>
                     <div class="help-text">Choose how to capture translation audio</div>
                 </div>
@@ -374,6 +375,15 @@
                         <label>Direct Audio Stream URL</label>
                         <input type="text" id="audioUrl" placeholder="https://example.com/audio-stream.mp3">
                         <div class="help-text">HTTP/HTTPS audio stream URL</div>
+                    </div>
+                </div>
+
+                <!-- RTMP Mode Fields -->
+                <div id="rtmpModeFields" style="display: none;">
+                    <div class="form-group">
+                        <label>RTMP Audio Stream URL</label>
+                        <input type="text" id="audioRtmpUrl" placeholder="rtmp://localhost:1935/live/audio">
+                        <div class="help-text">RTMP audio stream URL (will be mixed with main video RTMP)</div>
                     </div>
                 </div>
 
@@ -458,6 +468,7 @@
             document.getElementById('browserModeFields').style.display = 'none';
             document.getElementById('deviceModeFields').style.display = 'none';
             document.getElementById('urlModeFields').style.display = 'none';
+            document.getElementById('rtmpModeFields').style.display = 'none';
 
             // Show relevant fields based on mode
             switch (audioMode) {
@@ -469,6 +480,9 @@
                     break;
                 case 'url':
                     document.getElementById('urlModeFields').style.display = 'block';
+                    break;
+                case 'rtmp':
+                    document.getElementById('rtmpModeFields').style.display = 'block';
                     break;
             }
         }
@@ -488,6 +502,7 @@
                 document.getElementById('audioDeviceName').value = config.audioDeviceName || '';
                 document.getElementById('browserUrlDevice').value = config.browserUrl || '';
                 document.getElementById('audioUrl').value = config.audioUrl || '';
+                document.getElementById('audioRtmpUrl').value = config.audioRtmpUrl || '';
                 document.getElementById('rtmpVolume').value = config.rtmpVolume || 100;
                 document.getElementById('browserVolume').value = config.browserVolume || 100;
                 document.getElementById('rtmpDelay').value = config.rtmpDelay || 0;
@@ -520,6 +535,7 @@
                     browserHeight: parseInt(document.getElementById('browserHeight').value),
                     audioDeviceName: document.getElementById('audioDeviceName').value,
                     audioUrl: document.getElementById('audioUrl').value,
+                    audioRtmpUrl: document.getElementById('audioRtmpUrl').value,
                     rtmpVolume: parseInt(document.getElementById('rtmpVolume').value),
                     browserVolume: parseInt(document.getElementById('browserVolume').value),
                     rtmpDelay: parseInt(document.getElementById('rtmpDelay').value),

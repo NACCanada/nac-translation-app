@@ -9,8 +9,8 @@ const BrowserAudioCapture = require('./browser-audio');
 const RTMPMixer = require('./mixer');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const RTMP_PORT = process.env.RTMP_INPUT_PORT || 1935;
+const PORT = process.env.PORT || 3001;
+const RTMP_PORT = process.env.RTMP_INPUT_PORT || 1936;
 
 // Configuration file path
 const CONFIG_FILE = path.join(__dirname, 'config.json');
@@ -26,7 +26,7 @@ const mixer = new RTMPMixer();
 // Load saved configuration or use defaults
 function loadConfig() {
   const defaultConfig = {
-    rtmpInput: `rtmp://localhost:${process.env.RTMP_INPUT_PORT || 1935}/live/stream`,
+    rtmpInput: process.env.RTMP_INPUT_URL || `rtmp://127.0.0.1:${process.env.RTMP_INPUT_PORT || 1936}/live/stream`,
     rtmpOutputUrl: process.env.RTMP_OUTPUT_URL || '',
     rtmpOutputKey: process.env.RTMP_OUTPUT_KEY || '',
     browserUrl: process.env.BROWSER_URL || '',
@@ -41,7 +41,8 @@ function loadConfig() {
     browserCustomJs: process.env.BROWSER_CUSTOM_JS || '',
     audioMode: process.env.AUDIO_MODE || 'browser',
     audioDeviceName: process.env.AUDIO_DEVICE_NAME || '',
-    audioUrl: process.env.AUDIO_URL || ''
+    audioUrl: process.env.AUDIO_URL || '',
+    audioRtmpUrl: process.env.AUDIO_RTMP_URL || ''
   };
 
   try {
@@ -176,6 +177,16 @@ app.post('/api/start', async (req, res) => {
           browserAudioPath = appConfig.audioUrl;
         } else {
           console.warn('No audio URL configured');
+        }
+        break;
+
+      case 'rtmp':
+        // RTMP audio stream ingestion
+        if (appConfig.audioRtmpUrl) {
+          console.log(`Using RTMP audio stream: ${appConfig.audioRtmpUrl}`);
+          browserAudioPath = appConfig.audioRtmpUrl;
+        } else {
+          console.warn('No RTMP audio URL configured');
         }
         break;
 

@@ -17,10 +17,11 @@ This application provides real-time audio translation overlay for RTMP livestrea
    - Uses Puppeteer to launch headless Chrome (optional)
    - Navigates to translation website
    - Executes automated interactions (clicks, form fills, etc.)
-   - Supports 4 audio capture modes:
+   - Supports 5 audio capture modes:
      - **Browser Mode**: Silent placeholder (future CDP capture)
      - **Device Mode**: Captures from virtual audio device (BlackHole/PulseAudio)
      - **URL Mode**: Direct audio stream ingestion
+     - **RTMP Mode**: RTMP audio stream ingestion
      - **Disabled Mode**: RTMP passthrough only
 
 3. **RTMP Mixer** (`mixer.js`)
@@ -33,13 +34,13 @@ This application provides real-time audio translation overlay for RTMP livestrea
    - Outputs combined stream to RTMP destination
 
 4. **RTMP Server** (`node-media-server`)
-   - Built-in RTMP server on port 1935
+   - Built-in RTMP server on port 1936
    - Accepts incoming RTMP streams
    - No external RTMP server needed
 
 5. **Web Dashboard** (`public/index.html`)
    - Configuration interface
-   - Audio mode selector (4 modes)
+   - Audio mode selector (5 modes)
    - Volume controls (0-200% for each source)
    - Delay controls (0-5000ms for sync)
    - Browser automation setup
@@ -106,7 +107,7 @@ The mixer uses FFmpeg's complex filter graph to:
 
 ### Audio Capture Modes
 
-The application supports 4 different audio capture modes, selectable from the dashboard:
+The application supports 5 different audio capture modes, selectable from the dashboard:
 
 #### 1. Browser Mode (Default - Silent Placeholder)
 - Opens webpage with Puppeteer
@@ -143,7 +144,14 @@ ffmpeg -f pulse -i virtual_speaker.monitor ...
 - FFmpeg ingests directly: `ffmpeg -i https://example.com/audio.mp3 ...`
 - Perfect if translation service provides audio-only endpoint
 
-#### 4. Disabled Mode
+#### 4. RTMP Mode (Two RTMP Streams)
+- Ingests audio from a separate RTMP stream
+- Mixes two RTMP streams together: one for video+audio, one for audio only
+- FFmpeg ingests directly: `ffmpeg -i rtmp://localhost:1936/live/audio ...`
+- Perfect for scenarios where translation audio comes from a separate RTMP source
+- Use case: Stream video to `rtmp://localhost:1936/live/stream` and audio to `rtmp://localhost:1936/live/audio`
+
+#### 5. Disabled Mode
 - RTMP video/audio passes through unchanged
 - No translation audio mixing
 - Use for testing video pipeline
@@ -220,8 +228,8 @@ Dashboard receives real-time updates every 2 seconds:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| PORT | Web server port | 3000 |
-| RTMP_INPUT_PORT | RTMP server port | 1935 |
+| PORT | Web server port | 3001 |
+| RTMP_INPUT_PORT | RTMP server port | 1936 |
 | RTMP_OUTPUT_URL | Destination RTMP server | - |
 | RTMP_OUTPUT_KEY | Stream key | - |
 | AUDIO_MODE | Audio capture mode | browser |
@@ -230,6 +238,7 @@ Dashboard receives real-time updates every 2 seconds:
 | BROWSER_HEIGHT | Browser viewport height | 1080 |
 | AUDIO_DEVICE_NAME | Virtual audio device name | - |
 | AUDIO_URL | Direct audio stream URL | - |
+| AUDIO_RTMP_URL | RTMP audio stream URL | - |
 | RTMP_AUDIO_VOLUME | RTMP audio level (0-200) | 100 |
 | BROWSER_AUDIO_VOLUME | Browser audio level (0-200) | 100 |
 | RTMP_AUDIO_DELAY | RTMP delay in ms (0-15000) | 0 |
@@ -242,6 +251,7 @@ Dashboard receives real-time updates every 2 seconds:
 - `browser` - Silent placeholder (automation testing)
 - `device` - Virtual audio device capture (BlackHole/PulseAudio)
 - `url` - Direct audio URL ingestion
+- `rtmp` - RTMP audio stream ingestion
 - `disabled` - RTMP passthrough only
 
 ### Runtime Configuration
@@ -282,7 +292,7 @@ npm start
 - All necessary codecs and fonts
 
 **Docker Compose handles:**
-- Port mapping (3000 for dashboard, 1935 for RTMP)
+- Port mapping (3001 for dashboard, 1936 for RTMP)
 - Volume mounting for audio temp files
 - Environment variable injection
 - Automatic restart on failure
@@ -297,7 +307,7 @@ npm start
 
 1. **RTMP Input Server**
    - Consider using nginx-rtmp-module for more robust RTMP server
-   - Current implementation expects external RTMP server on port 1935
+   - Current implementation expects external RTMP server on port 1936
    - Could add built-in RTMP server using node-media-server
 
 2. **Security**
@@ -357,7 +367,7 @@ npm start
 
 ### WebSocket Protocol
 
-**Connection:** `ws://localhost:3000`
+**Connection:** `ws://localhost:3001`
 
 **Message Format:**
 ```json
@@ -470,7 +480,7 @@ node -e "const p = require('puppeteer'); p.launch().then(b => console.log('OK'))
 
 **Test RTMP Input:**
 ```bash
-ffplay rtmp://localhost:1935/live/stream
+ffplay rtmp://localhost:1936/live/stream
 ```
 
 ## Development Guide

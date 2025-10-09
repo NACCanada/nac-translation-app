@@ -13,7 +13,7 @@ class RTMPMixer {
       browserVolume: 100,
       rtmpDelay: 0,
       browserDelay: 0,
-      videoBitrate: '6000k'
+      videoBitrate: '10000k'
     };
   }
 
@@ -50,9 +50,12 @@ class RTMPMixer {
       // Input 1: RTMP stream (video + audio)
       this.ffmpegProcess.input(this.config.inputRtmpUrl)
         .inputOptions([
-          '-thread_queue_size', '512',
-          '-re',
-          '-fflags', '+genpts'
+          '-thread_queue_size', '4096',
+          '-fflags', '+genpts',
+          '-analyzeduration', '10000000',
+          '-probesize', '10000000',
+          '-rtmp_live', 'live',
+          '-rtmp_buffer', '5000'
         ]);
 
       // Input 2: Browser audio (if available)
@@ -66,7 +69,7 @@ class RTMPMixer {
           ]);
       }
 
-      // Complex filter for audio mixing with delays and video delay
+      // Complex filter for audio mixing with delays
       let filterComplex;
       let needsVideoFilter = rtmpDelaySeconds > 0;
 
@@ -74,7 +77,7 @@ class RTMPMixer {
         // Mix both audio streams with independent volume controls and delays
         const filters = [];
 
-        // Delay RTMP video if RTMP delay is set (only add filter if delay needed)
+        // Delay video by buffering frames (using null source padding approach)
         if (rtmpDelaySeconds > 0) {
           filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
         }
@@ -86,7 +89,7 @@ class RTMPMixer {
           filters.push(`[0:a]volume=${rtmpVolumeFilter}[a0]`);
         }
 
-        // Adjust browser audio volume and delay (already 48kHz from capture)
+        // Adjust browser audio volume and delay
         if (browserDelaySeconds > 0) {
           filters.push(`[1:a]volume=${browserVolumeFilter},adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`);
         } else {
@@ -98,15 +101,14 @@ class RTMPMixer {
 
         filterComplex = filters.join(';');
       } else {
-        // Only RTMP with volume adjustment and delay (video + audio together)
+        // Only RTMP with volume adjustment and delay
         const filters = [];
 
-        // Delay RTMP video if RTMP delay is set
+        // Delay video and audio together
         if (rtmpDelaySeconds > 0) {
           filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
           filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
         } else {
-          // No video filter needed, just audio volume
           filters.push(`[0:a]volume=${rtmpVolumeFilter}[aout]`);
         }
 
@@ -130,9 +132,17 @@ class RTMPMixer {
       if (needsVideoFilter) {
         // Re-encode video with specified bitrate when delay is applied
         outputOptions.push(
-          '-c:v libx264',                    // Re-encode video (required for setpts)
-          '-preset ultrafast',               // Fast encoding
-          `-b:v ${this.config.videoBitrate}` // Video bitrate
+          '-c:v libx264',                      // Re-encode video (required for setpts)
+          '-preset fast',                       // Better quality than ultrafast
+          '-tune film',                         // Optimize for high quality video
+          `-b:v ${this.config.videoBitrate}`,  // Video bitrate
+          '-maxrate', this.config.videoBitrate, // CBR mode
+          '-bufsize', '10000k',                // Buffer = 1x bitrate for smooth output
+          '-g', '60',                          // Keyframe every 2 sec (assuming 30fps)
+          '-keyint_min', '30',                 // Min keyframe interval
+          '-profile:v high',                   // H.264 high profile
+          '-level', '4.1',                     // H.264 level
+          '-pix_fmt', 'yuv420p'                // Compatibility
         );
       } else {
         // Copy video codec when no delay
