@@ -622,7 +622,12 @@
 
                 const result = await response.json();
                 if (result.success) {
-                    showMessage('Volume and delay settings updated');
+                    // Show different message based on what was updated
+                    if (result.seamlessUpdate) {
+                        showMessage('✨ Volume updated seamlessly (~100ms audio glitch)');
+                    } else {
+                        showMessage('Volume and delay settings updated (stream restarted)');
+                    }
                 } else {
                     showMessage('Failed to update settings: ' + result.error, 'error');
                 }
