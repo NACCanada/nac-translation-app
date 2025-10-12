@@ -7,6 +7,7 @@ class RTMPMixer {
     this.ffmpegProcess = null;
     this.ffmpegPid = null;
     this.isRunning = false;
+    this.pipeToVolumeController = false; // Flag to determine if outputting to pipe
     this.config = {
       inputRtmpUrl: '',
       outputRtmpUrl: '',
@@ -71,12 +72,37 @@ class RTMPMixer {
           ]);
       }
 
-      // Complex filter for audio mixing with delays
+      // Complex filter for audio processing with delays
+      // When piping to volume controller, output separate audio tracks without mixing
+      // Otherwise, mix audio here as before
       let filterComplex;
       let needsVideoFilter = rtmpDelaySeconds > 0;
 
-      if (this.config.browserAudioPath) {
-        // Mix both audio streams with independent volume controls and delays
+      if (this.pipeToVolumeController && this.config.browserAudioPath) {
+        // NEW PATH: Output separate audio tracks for volume controller
+        const filters = [];
+
+        // Delay video if needed
+        if (rtmpDelaySeconds > 0) {
+          filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
+        }
+
+        // Apply delays to audio streams but NO volume control (that's handled by volume controller)
+        if (rtmpDelaySeconds > 0) {
+          filters.push(`[0:a]adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[a0]`);
+        } else {
+          filters.push(`[0:a]acopy[a0]`);
+        }
+
+        if (browserDelaySeconds > 0) {
+          filters.push(`[1:a]adelay=${this.config.browserDelay}|${this.config.browserDelay}[a1]`);
+        } else {
+          filters.push(`[1:a]acopy[a1]`);
+        }
+
+        filterComplex = filters.join(';');
+      } else if (this.config.browserAudioPath) {
+        // OLD PATH: Mix both audio streams with volume controls (for backwards compatibility)
         const filters = [];
 
         // Delay video by buffering frames (using null source padding approach)
@@ -103,15 +129,23 @@ class RTMPMixer {
 
         filterComplex = filters.join(';');
       } else {
-        // Only RTMP with volume adjustment and delay
+        // Only RTMP with volume adjustment and delay (or just delay if piping)
         const filters = [];
 
         // Delay video and audio together
         if (rtmpDelaySeconds > 0) {
           filters.push(`[0:v]setpts=PTS+${rtmpDelaySeconds}/TB[v0]`);
-          filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
+          if (this.pipeToVolumeController) {
+            filters.push(`[0:a]adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
+          } else {
+            filters.push(`[0:a]volume=${rtmpVolumeFilter},adelay=${this.config.rtmpDelay}|${this.config.rtmpDelay}[aout]`);
+          }
         } else {
-          filters.push(`[0:a]volume=${rtmpVolumeFilter}[aout]`);
+          if (this.pipeToVolumeController) {
+            filters.push(`[0:a]acopy[aout]`);
+          } else {
+            filters.push(`[0:a]volume=${rtmpVolumeFilter}[aout]`);
+          }
         }
 
         filterComplex = filters.join(';');
@@ -127,8 +161,15 @@ class RTMPMixer {
         outputOptions.push('-map 0:v');   // Map video directly from input
       }
 
-      // Map audio output
-      outputOptions.push('-map [aout]');
+      // Map audio output - either separate tracks or mixed
+      if (this.pipeToVolumeController && this.config.browserAudioPath) {
+        // Map both audio tracks separately for volume controller
+        outputOptions.push('-map [a0]');  // RTMP audio track
+        outputOptions.push('-map [a1]');  // Browser audio track
+      } else {
+        // Map mixed audio output
+        outputOptions.push('-map [aout]');
+      }
 
       // Add video encoding options
       if (needsVideoFilter) {
@@ -152,19 +193,37 @@ class RTMPMixer {
       }
 
       // Add audio encoding options
-      outputOptions.push(
-        '-c:a aac',           // Encode audio to AAC
-        '-b:a 192k',          // Audio bitrate (increased for better quality)
-        '-ar 48000',          // Audio sample rate (match input processing)
-        '-ac 2',              // Stereo channels
-        '-f flv',             // FLV format for RTMP
-        '-flvflags no_duration_filesize'
-      );
+      if (this.pipeToVolumeController) {
+        // When piping, encode audio to AAC for pipe transport
+        outputOptions.push(
+          '-c:a aac',           // Encode audio to AAC
+          '-b:a 192k',          // Audio bitrate (increased for better quality)
+          '-ar 48000',          // Audio sample rate (match input processing)
+          '-ac 2',              // Stereo channels
+          '-f flv'              // FLV format for pipe
+        );
+      } else {
+        // When outputting directly to RTMP
+        outputOptions.push(
+          '-c:a aac',           // Encode audio to AAC
+          '-b:a 192k',          // Audio bitrate (increased for better quality)
+          '-ar 48000',          // Audio sample rate (match input processing)
+          '-ac 2',              // Stereo channels
+          '-f flv',             // FLV format for RTMP
+          '-flvflags no_duration_filesize'
+        );
+      }
 
       this.ffmpegProcess
         .complexFilter(filterComplex)
-        .outputOptions(outputOptions)
-        .output(this.config.outputRtmpUrl);
+        .outputOptions(outputOptions);
+
+      // Output to pipe or RTMP depending on mode
+      if (this.pipeToVolumeController) {
+        this.ffmpegProcess.output('pipe:1');  // Output to stdout for piping
+      } else {
+        this.ffmpegProcess.output(this.config.outputRtmpUrl);
+      }
 
       // Event handlers
       this.ffmpegProcess
@@ -277,22 +336,55 @@ class RTMPMixer {
   }
 
   async updateVolumes(rtmpVolume, browserVolume, rtmpDelay, browserDelay) {
-    // To update volumes/delays in real-time, we need to restart the process
-    // with new settings
+    // When using pipe mode, only delays require mixer restart (volumes handled by volume controller)
+    // When not using pipe mode, restart mixer for all changes
     if (this.isRunning) {
-      console.log('Updating volumes and delays...');
-      this.config.rtmpVolume = rtmpVolume !== undefined ? rtmpVolume : this.config.rtmpVolume;
-      this.config.browserVolume = browserVolume !== undefined ? browserVolume : this.config.browserVolume;
-      this.config.rtmpDelay = rtmpDelay !== undefined ? rtmpDelay : this.config.rtmpDelay;
-      this.config.browserDelay = browserDelay !== undefined ? browserDelay : this.config.browserDelay;
-      await this.start(this.config);
+      if (this.pipeToVolumeController) {
+        // In pipe mode: only restart if delays changed
+        const delaysChanged = (rtmpDelay !== undefined && rtmpDelay !== this.config.rtmpDelay) ||
+                             (browserDelay !== undefined && browserDelay !== this.config.browserDelay);
+
+        // Update volumes in config (used by volume controller, not mixer)
+        this.config.rtmpVolume = rtmpVolume !== undefined ? rtmpVolume : this.config.rtmpVolume;
+        this.config.browserVolume = browserVolume !== undefined ? browserVolume : this.config.browserVolume;
+
+        if (delaysChanged) {
+          console.log('Updating delays, restarting mixer...');
+          this.config.rtmpDelay = rtmpDelay !== undefined ? rtmpDelay : this.config.rtmpDelay;
+          this.config.browserDelay = browserDelay !== undefined ? browserDelay : this.config.browserDelay;
+          await this.start(this.config);
+        } else {
+          console.log('Only volume changed in pipe mode, no mixer restart needed');
+        }
+      } else {
+        // In direct mode: restart for any change
+        console.log('Updating volumes and delays...');
+        this.config.rtmpVolume = rtmpVolume !== undefined ? rtmpVolume : this.config.rtmpVolume;
+        this.config.browserVolume = browserVolume !== undefined ? browserVolume : this.config.browserVolume;
+        this.config.rtmpDelay = rtmpDelay !== undefined ? rtmpDelay : this.config.rtmpDelay;
+        this.config.browserDelay = browserDelay !== undefined ? browserDelay : this.config.browserDelay;
+        await this.start(this.config);
+      }
     }
+  }
+
+  enablePipeMode() {
+    this.pipeToVolumeController = true;
+  }
+
+  disablePipeMode() {
+    this.pipeToVolumeController = false;
+  }
+
+  getProcess() {
+    return this.ffmpegProcess;
   }
 
   getStatus() {
     return {
       isRunning: this.isRunning,
-      config: this.config
+      config: this.config,
+      pipeMode: this.pipeToVolumeController
     };
   }
 }

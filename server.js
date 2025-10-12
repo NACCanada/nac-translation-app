@@ -7,6 +7,7 @@ require('dotenv').config();
 
 const BrowserAudioCapture = require('./browser-audio');
 const RTMPMixer = require('./mixer');
+const VolumeController = require('./volume-controller');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -22,6 +23,10 @@ app.use(express.static('public'));
 // Initialize components
 const browserAudio = new BrowserAudioCapture();
 const mixer = new RTMPMixer();
+const volumeController = new VolumeController();
+
+// Enable pipe mode by default for seamless volume control
+mixer.enablePipeMode();
 
 // Load saved configuration or use defaults
 function loadConfig() {
@@ -103,7 +108,8 @@ app.post('/api/config', async (req, res) => {
 app.get('/api/status', (req, res) => {
   res.json({
     browser: browserAudio.getStatus(),
-    mixer: mixer.getStatus()
+    mixer: mixer.getStatus(),
+    volumeController: volumeController.getStatus()
   });
 });
 
@@ -201,10 +207,10 @@ app.post('/api/start', async (req, res) => {
     // Construct output RTMP URL
     const outputRtmpUrl = `${appConfig.rtmpOutputUrl}/${appConfig.rtmpOutputKey}`;
 
-    // Start mixer (with or without browser audio)
+    // Start mixer (with or without browser audio) - it will output to pipe
     await mixer.start({
       inputRtmpUrl: appConfig.rtmpInput,
-      outputRtmpUrl: outputRtmpUrl,
+      outputRtmpUrl: outputRtmpUrl, // Not used in pipe mode, but kept for compatibility
       browserAudioPath: browserAudioPath,
       rtmpVolume: appConfig.rtmpVolume,
       browserVolume: appConfig.browserVolume,
@@ -213,9 +219,29 @@ app.post('/api/start', async (req, res) => {
       videoBitrate: appConfig.videoBitrate
     });
 
+    // Wait for mixer to fully start
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Start volume controller and pipe mixer output to it
+    await volumeController.start({
+      outputRtmpUrl: outputRtmpUrl,
+      rtmpVolume: appConfig.rtmpVolume,
+      browserVolume: appConfig.browserVolume
+    });
+
+    // Connect the pipe: mixer stdout -> volume controller stdin
+    const mixerProcess = mixer.getProcess();
+    const volumeProcess = volumeController.getProcess();
+
+    if (mixerProcess && volumeProcess) {
+      // Pipe the mixer output to volume controller input
+      mixerProcess.ffmpegProc.stdio.pipe(volumeProcess.ffmpegProc.stdin);
+      console.log('Piped mixer output to volume controller');
+    }
+
     const message = browserAudioPath
-      ? 'Streaming started with browser audio'
-      : 'Streaming started (browser audio unavailable)';
+      ? 'Streaming started with browser audio (seamless volume control enabled)'
+      : 'Streaming started (browser audio unavailable, seamless volume control enabled)';
 
     res.json({ success: true, message: message, hasBrowserAudio: !!browserAudioPath });
   } catch (error) {
@@ -228,6 +254,13 @@ app.post('/api/start', async (req, res) => {
 app.post('/api/stop', async (req, res) => {
   try {
     console.log('Stopping streaming pipeline...');
+
+    // Stop volume controller first
+    try {
+      await volumeController.stop();
+    } catch (volumeError) {
+      console.warn('Error stopping volume controller:', volumeError.message);
+    }
 
     // Stop mixer
     try {
@@ -255,6 +288,12 @@ app.post('/api/volumes', async (req, res) => {
   try {
     const { rtmpVolume, browserVolume, rtmpDelay, browserDelay } = req.body;
 
+    // Check what changed
+    const volumeChanged = (rtmpVolume !== undefined && rtmpVolume !== appConfig.rtmpVolume) ||
+                          (browserVolume !== undefined && browserVolume !== appConfig.browserVolume);
+    const delayChanged = (rtmpDelay !== undefined && rtmpDelay !== appConfig.rtmpDelay) ||
+                         (browserDelay !== undefined && browserDelay !== appConfig.browserDelay);
+
     if (rtmpVolume !== undefined) {
       appConfig.rtmpVolume = rtmpVolume;
     }
@@ -271,8 +310,32 @@ app.post('/api/volumes', async (req, res) => {
     // Persist configuration
     saveConfig(appConfig);
 
-    // Update mixer with new volumes and delays
+    // Update mixer with new delays (only restarts if delays changed in pipe mode)
     await mixer.updateVolumes(appConfig.rtmpVolume, appConfig.browserVolume, appConfig.rtmpDelay, appConfig.browserDelay);
+
+    // If only volume changed and we're in pipe mode, restart volume controller only
+    if (volumeChanged && mixer.getStatus().pipeMode && volumeController.getStatus().isRunning) {
+      console.log('Volume changed, restarting volume controller only (seamless)');
+
+      // Construct output RTMP URL
+      const outputRtmpUrl = `${appConfig.rtmpOutputUrl}/${appConfig.rtmpOutputKey}`;
+
+      // Restart volume controller with new volumes
+      await volumeController.start({
+        outputRtmpUrl: outputRtmpUrl,
+        rtmpVolume: appConfig.rtmpVolume,
+        browserVolume: appConfig.browserVolume
+      });
+
+      // Reconnect the pipe
+      const mixerProcess = mixer.getProcess();
+      const volumeProcess = volumeController.getProcess();
+
+      if (mixerProcess && volumeProcess) {
+        mixerProcess.ffmpegProc.stdio.pipe(volumeProcess.ffmpegProc.stdin);
+        console.log('Re-piped mixer output to volume controller');
+      }
+    }
 
     res.json({
       success: true,
@@ -281,7 +344,8 @@ app.post('/api/volumes', async (req, res) => {
         browserVolume: appConfig.browserVolume,
         rtmpDelay: appConfig.rtmpDelay,
         browserDelay: appConfig.browserDelay
-      }
+      },
+      seamlessUpdate: volumeChanged && !delayChanged
     });
   } catch (error) {
     console.error('Failed to update volumes:', error);
@@ -350,7 +414,8 @@ wss.on('connection', (ws) => {
         type: 'status',
         data: {
           browser: browserAudio.getStatus(),
-          mixer: mixer.getStatus()
+          mixer: mixer.getStatus(),
+          volumeController: volumeController.getStatus()
         }
       }));
     }
@@ -365,6 +430,7 @@ wss.on('connection', (ws) => {
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
+  await volumeController.stop();
   await mixer.stop();
   await browserAudio.cleanup();
   nms.stop();
@@ -376,6 +442,7 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
+  await volumeController.stop();
   await mixer.stop();
   await browserAudio.cleanup();
   nms.stop();

@@ -28,17 +28,24 @@ This application provides real-time audio translation overlay for RTMP livestrea
    - Uses FFmpeg via fluent-ffmpeg wrapper
    - Ingests RTMP video stream (video + audio)
    - Mixes RTMP audio with browser/device audio
-   - Applies independent volume controls (0-200%)
    - Applies independent delay controls (0-5000ms)
    - RTMP delay affects both video and audio together
-   - Outputs combined stream to RTMP destination
+   - In pipe mode: outputs separate audio tracks to volume controller
+   - In direct mode: applies volume and outputs to RTMP destination
 
-4. **RTMP Server** (`node-media-server`)
+4. **Volume Controller** (`volume-controller.js`)
+   - NEW: Separate FFmpeg process for seamless volume control
+   - Receives piped input from mixer
+   - Applies independent volume controls (0-200%) to both audio streams
+   - Mixes audio and outputs to RTMP destination
+   - Can restart independently (~100-200ms interruption vs 1-2s)
+
+5. **RTMP Server** (`node-media-server`)
    - Built-in RTMP server on port 1936
    - Accepts incoming RTMP streams
    - No external RTMP server needed
 
-5. **Web Dashboard** (`public/index.html`)
+6. **Web Dashboard** (`public/index.html`)
    - Configuration interface
    - Audio mode selector (5 modes)
    - Volume controls (0-200% for each source)
@@ -62,18 +69,26 @@ This application provides real-time audio translation overlay for RTMP livestrea
 └─────────────────┘     └────────┬─────────┘
                                  │
                                  ▼
-                        ┌─────────────────┐
-                        │  FFmpeg Mixer   │
-                        │  - Video copy   │
-                        │  - Audio mix    │
-                        │  - Volume ctrl  │
-                        └────────┬────────┘
+                        ┌──────────────────┐
+                        │  FFmpeg Mixer    │
+                        │  - Video proc    │
+                        │  - Audio delays  │
+                        │  - Separate trks │
+                        └────────┬─────────┘
+                                 │ PIPE
+                                 ▼
+                        ┌──────────────────┐
+                        │ Volume Control   │
+                        │  - Apply volumes │
+                        │  - Mix audio     │
+                        │  - Encode output │
+                        └────────┬─────────┘
                                  │
                                  ▼
-                        ┌─────────────────┐
-                        │  RTMP Output    │
-                        │  (YouTube/etc)  │
-                        └─────────────────┘
+                        ┌──────────────────┐
+                        │  RTMP Output     │
+                        │  (YouTube/etc)   │
+                        └──────────────────┘
 ```
 
 ## Technical Implementation
@@ -180,26 +195,48 @@ Puppeteer provides several automation capabilities:
 
 ### Real-time Volume & Delay Adjustment
 
-Volume and delay changes require FFmpeg process restart because filter graphs cannot be modified at runtime. The implementation:
+**NEW: Two-Process Architecture for Seamless Volume Control**
 
-1. Stops current FFmpeg process gracefully (SIGTERM)
-2. Waits for process to end
-3. Restarts with new volume/delay parameters
-4. Brief interruption (~1-2 seconds) in output stream
+The application uses a pipe-based architecture to enable near-seamless volume changes:
+
+**Volume Changes** (~100-200ms interruption):
+1. Mixer continues running (video unaffected)
+2. Volume controller restarts with new settings
+3. Pipe reconnects automatically
+4. Brief audio glitch instead of full stream restart
+
+**Delay Changes** (1-2 second interruption):
+1. Mixer must restart (delays baked into filter graph)
+2. Volume controller reconnects after mixer restarts
+3. Full stream interruption (same as before)
+
+**Behavior Matrix:**
+
+| Change Type | Mixer Restarts? | Volume Ctrl Restarts? | Interruption |
+|-------------|-----------------|----------------------|--------------|
+| Volume only | ❌ No | ✅ Yes | ~100-200ms audio glitch |
+| Delay only | ✅ Yes | ✅ Yes | ~1-2s full restart |
+| Both | ✅ Yes | ✅ Yes | ~1-2s full restart |
 
 **Performance Impact:**
-- Volume changes: No additional CPU (audio encoding only)
-- RTMP delay changes: Requires video re-encoding at 6000kbps (libx264 ultrafast preset)
+- Volume changes: Minimal (~100-200ms glitch, video continues smoothly)
+- RTMP delay changes: Requires video re-encoding at configurable bitrate (default 10000kbps)
 - Browser delay changes: Audio only (no video re-encoding)
+- Pipe overhead: Negligible CPU increase for two processes
 
 **Video Bitrate Behavior:**
 - No RTMP delay: Video copied (original bitrate preserved)
-- With RTMP delay: Video re-encoded at configurable bitrate (default 6000kbps)
+- With RTMP delay: Video re-encoded at configurable bitrate (default 10000kbps)
 - Configurable via `VIDEO_BITRATE` environment variable
 
-**Alternative Approach** (Future improvement):
-- Use FFmpeg's `zmq` or `tcp` filter controllers for real-time adjustment
-- Requires more complex filter setup but allows seamless changes
+**Implementation Details:**
+- Pipe mode enabled by default (`mixer.enablePipeMode()`)
+- Can disable for backward compatibility (`mixer.disablePipeMode()`)
+- See `SEAMLESS_VOLUME.md` for complete technical documentation
+
+**Future Improvements:**
+- FFmpeg `sendcmd` or `zmq` filters for zero-interruption volume control
+- Requires `--enable-libzmq` compilation flag
 
 ### WebSocket Status Updates
 
@@ -356,9 +393,11 @@ npm start
 - Returns: `{ success: true, message: "..." }`
 
 **POST /api/volumes**
-- Updates volume levels in real-time
-- Body: `{ rtmpVolume: 0-200, browserVolume: 0-200 }`
-- Restarts mixer with new settings
+- Updates volume levels and delays in real-time
+- Body: `{ rtmpVolume: 0-200, browserVolume: 0-200, rtmpDelay: 0-15000, browserDelay: 0-15000 }`
+- Volume-only changes: Restarts volume controller only (~100-200ms glitch)
+- Delay changes: Restarts full pipeline (1-2s interruption)
+- Returns: `{ success: true, settings: {...}, seamlessUpdate: boolean }`
 
 **POST /api/browser/action**
 - Executes single browser action
@@ -375,7 +414,8 @@ npm start
   "type": "status",
   "data": {
     "browser": { "isRunning": true, ... },
-    "mixer": { "isRunning": true, ... }
+    "mixer": { "isRunning": true, "pipeMode": true, ... },
+    "volumeController": { "isRunning": true, ... }
   }
 }
 ```
@@ -387,10 +427,10 @@ npm start
 ### Current Limitations
 
 1. **Audio Capture**: Browser audio path is placeholder - needs virtual audio routing
-2. **Volume Changes**: Require stream restart (1-2s interruption)
+2. **Delay Changes**: Still require full restart (1-2s interruption)
 3. **No Authentication**: Dashboard is publicly accessible
 4. **Single Stream**: Only one stream can be processed at a time
-5. **No RTMP Server**: Requires external RTMP server for input
+5. **Volume Changes**: Brief audio glitch (~100-200ms) during adjustment
 
 ### Planned Improvements
 
@@ -399,9 +439,10 @@ npm start
    - Virtual audio device integration
    - Direct WebRTC capture
 
-2. **Seamless Volume Control**
-   - FFmpeg filter control protocol
-   - Zero-interruption volume changes
+2. **Zero-Interruption Volume Control**
+   - ✅ IMPROVED: Now ~100-200ms glitch (was 1-2s)
+   - Future: FFmpeg `sendcmd` or `zmq` for zero glitches
+   - Requires FFmpeg compiled with `--enable-libzmq`
 
 3. **Authentication Layer**
    - Basic auth for dashboard
@@ -490,12 +531,15 @@ ffplay rtmp://localhost:1936/live/stream
 ```
 nac-translation-app/
 ├── server.js              # Main Express server
-├── mixer.js               # FFmpeg pipeline manager
+├── mixer.js               # FFmpeg mixer (delays + pipe output)
+├── volume-controller.js   # FFmpeg volume control (NEW)
 ├── browser-audio.js       # Puppeteer automation
 ├── package.json           # Dependencies
 ├── Dockerfile             # Container definition
 ├── docker-compose.yml     # Deployment config
 ├── .env.example           # Config template
+├── CLAUDE.md              # Technical documentation (this file)
+├── SEAMLESS_VOLUME.md     # Seamless volume implementation docs
 ├── public/
 │   └── index.html         # Dashboard UI
 ├── audio-temp/            # Temp audio files (gitignored)
